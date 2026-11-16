@@ -188,6 +188,52 @@ test("touch pointer drag merges a tile", async ({ page }) => {
   ).toHaveText("(6 + 2)");
 });
 
+test("a second pointer cannot replace an active drag", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/?puzzle=6,2,8,4");
+  const first = page.locator('[data-card-index="0"]');
+  const firstBox = await first.boundingBox();
+  if (!firstBox) throw new Error("First card is not visible");
+
+  await page.mouse.move(firstBox.x + 20, firstBox.y + 20);
+  await page.mouse.down();
+  await page.mouse.move(firstBox.x + 40, firstBox.y + 40, { steps: 4 });
+  await expect(page.locator(".drag-ghost")).toHaveCount(1);
+
+  const second = page.locator('[data-card-index="1"]');
+  const secondBox = await second.boundingBox();
+  if (!secondBox) throw new Error("Second card is not visible");
+  await second.dispatchEvent("pointerdown", {
+    pointerId: 2,
+    pointerType: "touch",
+    isPrimary: false,
+    bubbles: true,
+    clientX: secondBox.x + 20,
+    clientY: secondBox.y + 20,
+  });
+  await page.evaluate(
+    ({ x, y }) => {
+      window.dispatchEvent(
+        new PointerEvent("pointermove", {
+          pointerId: 2,
+          pointerType: "touch",
+          bubbles: true,
+          clientX: x + 20,
+          clientY: y + 20,
+          buttons: 1,
+        }),
+      );
+    },
+    { x: secondBox.x, y: secondBox.y },
+  );
+
+  await expect(page.locator(".drag-ghost")).toHaveCount(1);
+  await expect(page.locator('[data-slot-index="0"]')).toHaveClass(/is-source/);
+  await expect(page.locator('[data-slot-index="1"]')).not.toHaveClass(
+    /is-source/,
+  );
+});
+
 test("invalid drops leave the board unchanged", async ({ page }) => {
   await page.goto("/?puzzle=6,2,8,4");
   const before = await page.evaluate(() =>
@@ -297,6 +343,25 @@ test("settings apply, persist, and start a fresh puzzle", async ({ page }) => {
   );
   expect(settings).toEqual({ range: "1-13", allowUnsolvable: true });
   await expect(page.getByRole("dialog", { name: "游戏设置" })).toBeHidden();
+});
+
+test("settings choices show keyboard focus", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: "设置" }).click();
+  await page.getByRole("radio", { name: "1-13" }).focus();
+
+  const outline = await page
+    .locator(".choice-card")
+    .nth(1)
+    .evaluate((element) => getComputedStyle(element).outlineStyle);
+  expect(outline).not.toBe("none");
+});
+
+test("number tiles are not misleading keyboard buttons", async ({ page }) => {
+  await page.goto("/");
+
+  await expect(page.getByRole("button", { name: /^数字 / })).toHaveCount(0);
+  await expect(page.getByRole("img", { name: /^数字 / })).toHaveCount(4);
 });
 
 test("debug text describes the visible board", async ({ page }) => {

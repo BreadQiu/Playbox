@@ -41,7 +41,7 @@ type DragTarget = Readonly<{
 type DragSession = {
   sourceIndex: number;
   sourceCard: Card;
-  sourceElement: HTMLButtonElement;
+  sourceElement: HTMLElement;
   pointerId: number;
   startX: number;
   startY: number;
@@ -298,15 +298,16 @@ export class TwentyFourApp {
 
         return `
           <div class="card-slot slot-${slotIndex}" data-slot-index="${slotIndex}">
-            <button
+            <div
               class="number-card"
-              type="button"
               data-card-index="${slotIndex}"
+              role="img"
               aria-label="数字 ${formatCardValue(card)}"
+              aria-description="按住并拖动到另一张数字牌旁边的运算符"
             >
               <span class="card-value ${formatCardValue(card).length > 3 ? "is-long" : ""}">${formatCardValue(card)}</span>
               ${card.expression === formatCardValue(card) ? "" : `<span class="card-expression">${escapeHtml(card.expression)}</span>`}
-            </button>
+            </div>
             ${this.renderOperators(card, slotIndex)}
           </div>
         `;
@@ -375,7 +376,7 @@ export class TwentyFourApp {
       return;
     }
 
-    const source = (event.target as Element).closest<HTMLButtonElement>(
+    const source = (event.target as Element).closest<HTMLElement>(
       "[data-card-index]",
     );
     if (!source) return;
