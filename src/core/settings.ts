@@ -53,7 +53,11 @@ export function saveSettings(
   settings: GameSettings,
   storage?: StorageLike,
 ): void {
-  storage?.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(settings));
+  try {
+    storage?.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(settings));
+  } catch {
+    // Settings persistence is optional; the game must remain playable.
+  }
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

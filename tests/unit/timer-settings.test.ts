@@ -102,4 +102,17 @@ describe("game settings", () => {
   it("uses the versioned storage key", () => {
     expect(SETTINGS_STORAGE_KEY).toBe("twenty-four.settings.v1");
   });
+
+  it("does not break the game when browser storage rejects writes", () => {
+    const rejectingStorage = {
+      getItem: () => null,
+      setItem: () => {
+        throw new Error("Storage unavailable");
+      },
+    };
+
+    expect(() =>
+      saveSettings({ range: "1-13", allowUnsolvable: true }, rejectingStorage),
+    ).not.toThrow();
+  });
 });
