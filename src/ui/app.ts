@@ -15,6 +15,7 @@ import {
   loadSettings,
   saveSettings,
   type GameSettings,
+  type StorageLike,
 } from "../core/settings";
 import { GameTimer } from "../core/timer";
 
@@ -63,7 +64,7 @@ export class TwentyFourApp {
 
   constructor(root: HTMLElement) {
     this.root = root;
-    this.settings = loadSettings(window.localStorage);
+    this.settings = loadSettings(getBrowserStorage());
     this.initialValues = this.createPuzzle();
     this.state = newGame(this.initialValues);
     this.renderShell();
@@ -249,7 +250,7 @@ export class TwentyFourApp {
       range: range as DigitRange,
       allowUnsolvable: data.get("allowUnsolvable") === "on",
     };
-    saveSettings(this.settings, window.localStorage);
+    saveSettings(this.settings, getBrowserStorage());
     this.closeSettings();
     this.beginNewPuzzle();
   }
@@ -411,6 +412,11 @@ export class TwentyFourApp {
     window.addEventListener("pointerup", this.handlePointerUp);
     window.addEventListener("pointercancel", this.handlePointerCancel);
     window.addEventListener("resize", this.handleResize);
+    window.addEventListener("blur", this.handlePointerCancel);
+    source.addEventListener(
+      "lostpointercapture",
+      this.handleLostPointerCapture,
+    );
   }
 
   private readonly handlePointerMove = (event: PointerEvent): void => {
@@ -478,6 +484,10 @@ export class TwentyFourApp {
 
   private readonly handleResize = (): void => {
     this.finishVisualDrag();
+  };
+
+  private readonly handleLostPointerCapture = (): void => {
+    this.handlePointerCancel();
   };
 
   private startVisualDrag(session: DragSession): void {
@@ -597,6 +607,7 @@ export class TwentyFourApp {
 
   private finishVisualDrag(): void {
     if (!this.dragSession) return;
+    const sourceElement = this.dragSession.sourceElement;
     this.dragSession.ghost?.remove();
     this.root.querySelector(".merge-preview")?.remove();
     this.root.querySelector<HTMLElement>("[data-board]")?.classList.remove(
@@ -612,6 +623,11 @@ export class TwentyFourApp {
     window.removeEventListener("pointerup", this.handlePointerUp);
     window.removeEventListener("pointercancel", this.handlePointerCancel);
     window.removeEventListener("resize", this.handleResize);
+    window.removeEventListener("blur", this.handlePointerCancel);
+    sourceElement.removeEventListener(
+      "lostpointercapture",
+      this.handleLostPointerCapture,
+    );
     this.dragSession = null;
   }
 
@@ -702,6 +718,14 @@ function gearIcon(): string {
 
 function clamp(value: number, minimum: number, maximum: number): number {
   return Math.min(Math.max(value, minimum), Math.max(minimum, maximum));
+}
+
+function getBrowserStorage(): StorageLike | undefined {
+  try {
+    return window.localStorage;
+  } catch {
+    return undefined;
+  }
 }
 
 declare global {

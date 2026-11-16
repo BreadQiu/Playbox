@@ -1,5 +1,7 @@
 import { defineConfig, devices } from "@playwright/test";
 
+const localBrowserChannel = process.env.CI ? undefined : "msedge";
+
 export default defineConfig({
   testDir: "./tests/e2e",
   fullyParallel: false,
@@ -13,13 +15,16 @@ export default defineConfig({
   projects: [
     {
       name: "desktop-chromium",
-      use: { ...devices["Desktop Chrome"], channel: "msedge" },
+      use: {
+        ...devices["Desktop Chrome"],
+        ...(localBrowserChannel ? { channel: localBrowserChannel } : {}),
+      },
     },
   ],
   webServer: {
     command: "npm run dev -- --host 127.0.0.1 --port 4173",
     url: "http://127.0.0.1:4173",
-    reuseExistingServer: true,
+    reuseExistingServer: !process.env.CI,
     timeout: 30_000,
   },
 });

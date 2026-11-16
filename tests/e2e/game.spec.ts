@@ -234,6 +234,67 @@ test("a second pointer cannot replace an active drag", async ({ page }) => {
   );
 });
 
+test("window blur cancels an active drag", async ({ page }) => {
+  await page.goto("/?puzzle=6,2,8,4");
+  const source = page.locator('[data-card-index="0"]');
+  const box = await source.boundingBox();
+  if (!box) throw new Error("Source card is not visible");
+
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width / 2 + 24, box.y + 20, { steps: 5 });
+  await expect(page.locator(".drag-ghost")).toHaveCount(1);
+
+  await page.evaluate(() => window.dispatchEvent(new Event("blur")));
+  await expect(page.locator(".drag-ghost")).toHaveCount(0);
+  await expect(page.locator("[data-board]")).not.toHaveClass(/is-dragging/);
+  const state = await page.evaluate(() =>
+    JSON.parse(
+      (
+        window as Window & { render_game_to_text: () => string }
+      ).render_game_to_text(),
+    ),
+  );
+  expect(state.drag).toBeNull();
+  await page.mouse.up();
+});
+
+test("lost pointer capture cancels an active drag", async ({ page }) => {
+  await page.goto("/?puzzle=6,2,8,4");
+  const source = page.locator('[data-card-index="0"]');
+  const box = await source.boundingBox();
+  if (!box) throw new Error("Source card is not visible");
+
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width / 2 + 24, box.y + 20, { steps: 5 });
+  await source.dispatchEvent("lostpointercapture", {
+    bubbles: true,
+    pointerId: 1,
+  });
+
+  await expect(page.locator(".drag-ghost")).toHaveCount(0);
+  await expect(page.locator("[data-board]")).not.toHaveClass(/is-dragging/);
+  await page.mouse.up();
+});
+
+test("the game still opens when localStorage access is blocked", async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(window, "localStorage", {
+      configurable: true,
+      get() {
+        throw new Error("Storage blocked");
+      },
+    });
+  });
+  await page.goto("/");
+
+  await expect(page.getByRole("heading", { name: "24点" })).toBeVisible();
+  await expect(page.locator("[data-card-index]")).toHaveCount(4);
+});
+
 test("invalid drops leave the board unchanged", async ({ page }) => {
   await page.goto("/?puzzle=6,2,8,4");
   const before = await page.evaluate(() =>
