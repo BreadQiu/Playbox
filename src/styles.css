@@ -402,6 +402,14 @@ button:disabled {
     0 0 0 6px #2d2416;
 }
 
+.card-slot.is-rejected {
+  animation: reject-wobble 280ms ease-in-out;
+}
+
+.card-slot.is-merged .number-card {
+  animation: merge-squash 260ms cubic-bezier(0.2, 1.3, 0.4, 1);
+}
+
 .card-slot.is-source .number-card {
   opacity: 0.26;
 }
@@ -432,9 +440,9 @@ button:disabled {
   background: var(--ghost-color, #fff8db);
   box-shadow: 10px 12px 0 rgba(45, 36, 22, 0.25);
   pointer-events: none;
-  transform: translate(-50%, -55%) rotate(-4deg) scale(1.04);
+  transform: translate(-50%, calc(-100% - 22px)) rotate(-4deg) scale(1.04);
   font-family: "Fredoka Variable", sans-serif;
-  font-size: 3.6rem;
+  font-size: 2.7rem;
   font-variation-settings: "wght" 720;
   display: grid;
   place-items: center;
@@ -722,6 +730,31 @@ button:disabled {
   }
   70% {
     transform: translateX(6px);
+  }
+}
+
+@keyframes reject-wobble {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  30% {
+    transform: translateX(-6px) rotate(-1deg);
+  }
+  68% {
+    transform: translateX(5px) rotate(1deg);
+  }
+}
+
+@keyframes merge-squash {
+  0% {
+    transform: scale(1.12, 0.84);
+  }
+  58% {
+    transform: scale(0.96, 1.05);
+  }
+  100% {
+    transform: scale(1, 1);
   }
 }
 

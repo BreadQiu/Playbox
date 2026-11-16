@@ -46,8 +46,15 @@ export function newGame(values: readonly number[]): GameState {
     throw new Error("A 24-point puzzle needs exactly four values");
   }
 
+  const slots: BoardSnapshot = [
+    createCard(0, values[0]),
+    createCard(1, values[1]),
+    createCard(2, values[2]),
+    createCard(3, values[3]),
+  ];
+
   return {
-    slots: values.map((value, index) => createCard(index, value)) as BoardSnapshot,
+    slots,
     history: [],
     status: "playing",
   };
