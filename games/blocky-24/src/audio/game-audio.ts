@@ -45,7 +45,7 @@ type NoiseOptions = Readonly<{
 export const AUDIO_STORAGE_KEY = "twenty-four.audio.v1";
 
 export function parseAudioStyle(value: string | null): AudioStyle {
-  return value === "comedy" || value === "b" ? "comedy" : "tactile";
+  return value === "tactile" || value === "a" ? "tactile" : "comedy";
 }
 
 export function loadAudioPreferences(

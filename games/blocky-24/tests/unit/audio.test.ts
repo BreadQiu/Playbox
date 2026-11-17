@@ -8,8 +8,8 @@ import {
 } from "../../src/audio/game-audio";
 
 describe("game audio preferences", () => {
-  it("maps preview URLs to the two audio styles", () => {
-    expect(parseAudioStyle(null)).toBe("tactile");
+  it("uses comedy as the default while preserving explicit previews", () => {
+    expect(parseAudioStyle(null)).toBe("comedy");
     expect(parseAudioStyle("tactile")).toBe("tactile");
     expect(parseAudioStyle("a")).toBe("tactile");
     expect(parseAudioStyle("comedy")).toBe("comedy");

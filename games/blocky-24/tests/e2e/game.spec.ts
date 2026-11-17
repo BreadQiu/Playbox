@@ -180,6 +180,22 @@ async function shadowColor(locator: Locator): Promise<string | null> {
   });
 }
 
+test("comedy is the default sound for the regular game entry", async ({
+  page,
+}) => {
+  await page.goto("/?puzzle=6,2,8,4");
+  await expect(page).toHaveTitle("Blocky 24 · 喜剧音色");
+
+  const state = await page.evaluate(() =>
+    JSON.parse(window.render_game_to_text()),
+  );
+  expect(state.audio).toMatchObject({
+    style: "comedy",
+    muted: false,
+    lastCue: null,
+  });
+});
+
 test("tactile audio preview is available from its own URL", async ({ page }) => {
   await page.goto("/?puzzle=6,2,8,4&sound=tactile");
   await expect(page).toHaveTitle("Blocky 24 · 积木音色");
