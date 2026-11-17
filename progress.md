@@ -12,13 +12,40 @@ Original prompt: 设计一个打开即玩的 24 点网页游戏，支持电脑�
 - Yellow block-toy interface for desktop, phone, and iPad.
 - Victory, failure, merge, rejection, and reduced-motion feedback.
 - Debug state hook and deterministic timer advancement for Playwright.
+- Removed the visible drag instruction and dashed placeholders left by merged cards.
+- Added stable random card faces with ±3.2° tilt.
+- Switched visible numbers to bold Trebuchet MS.
+- Moved operators to target-card corners with proximity reveal and 56×56 hit boxes (48×48 on phones and landscape).
+- Floating card overlap or pointer overlap can select an operator; selected targets grow without overlapping any other hit area.
+- Removed both victory and failure panels; the board and controls now carry the result state.
+- Pinned local changes were staged before this refinement; new refinements remain unstaged.
+- Simplified settings copy to “简单” and “困难”, moved the title up, made the apply button green, and added hover growth.
+- Regular cards now use four mutually distinct colors; mint and peach are reserved for the final win/loss card.
+- Removed the drag-time answer preview pill.
+- Moved settings hover rules outside the hover media query and added visible feedback to the unsolvable toggle.
+- Added `findSolutionStep()` and a bulb hint showing the first operation from the original puzzle.
+- Moved circular undo to the game panel and added solution checking states for allowed/forbidden unsolvable puzzles.
+- Confirming an unsolvable puzzle pauses the timer and turns the new-puzzle control into “下一题”.
+- Hint bubbles sit to the left of the bulb at the same vertical center and dismiss on the next pointer, keyboard, wheel, or touch-scroll action.
+- Hint-confirmed solvable puzzles use a neutral white “此题有解” state; manual checks use red and keep the timer running.
+- Victory allows undo, freezes the timer through that undo, and shows neutral white “此题有解” plus green “下一题”.
+- Retry and new-puzzle controls now share the settings button’s cream color.
+- Timer now stops only when “下一题” appears; wrong final boards continue timing.
+- Once a round has been won, undo and retry preserve “下一题” and the frozen timer until a new puzzle starts.
+- A solvable manual check keeps the hint bulb enabled; only an unsolvable result disables it with a white translucent state.
+- Status labels now use “此题有解”/“此题无解”, and status, next, and apply shadows match the retry button.
+- Undo uses the rounded long left-arrow reference shape and remains available after victory.
+- Undo arrow now has matching rounded top-right and bottom-right corners.
+- Hint bubbles sit to the left of the bulb at the same vertical center.
+- “下一题” uses the same shadow color as “重来本题”.
 
 ## Verification
 
-- Unit tests cover arithmetic, solver, generation, game state, timer, and settings.
-- Playwright covers direct entry, settings, responsive overflow, mouse/touch drag,
-  invalid drops, zero division, scroll suppression, controls, win, and loss.
-- Production build includes locally bundled Fredoka font files.
+- `npm test -- --run`: 30/30 passing.
+- `npm run test:e2e`: 39/39 passing in local Edge.
+- Desktop, 390×844 phone, and 820×1180 iPad screenshots were inspected with no console errors.
+- `npm run build` and `npm run verify:pages` pass; the Pages subpath check reports three cards after one merge.
+- Production build uses the system Trebuchet MS numeric font stack and has no font package dependency.
 
 ## Remaining
 

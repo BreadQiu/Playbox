@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { generatePuzzle, hasSolution } from "../../src/core/puzzle";
+import {
+  findSolutionStep,
+  generatePuzzle,
+  hasSolution,
+} from "../../src/core/puzzle";
 
 function sequenceRng(values: number[]): () => number {
   let cursor = 0;
@@ -23,6 +27,31 @@ describe("24-point puzzle solving", () => {
 
   it("rejects a puzzle with no solution", () => {
     expect(hasSolution([1, 1, 1, 1])).toBe(false);
+  });
+
+  it("returns the first operation of a complete solution", () => {
+    expect(findSolutionStep([6, 6, 6, 6])).toEqual({
+      left: 6,
+      right: 6,
+      operator: "+",
+    });
+    expect(findSolutionStep([1, 1, 1, 1])).toBeNull();
+  });
+
+  it("keeps the actual operands for reversed subtraction", () => {
+    expect(findSolutionStep([3, 5, 6, 8])).toEqual({
+      left: 5,
+      right: 3,
+      operator: "-",
+    });
+  });
+
+  it("keeps the actual operands for reversed division", () => {
+    expect(findSolutionStep([3, 6, 13, 9])).toEqual({
+      left: 6,
+      right: 3,
+      operator: "÷",
+    });
   });
 });
 

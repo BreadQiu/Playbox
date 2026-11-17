@@ -1,4 +1,3 @@
-import "@fontsource-variable/fredoka";
 import "./styles.css";
 import { TwentyFourApp } from "./ui/app";
 

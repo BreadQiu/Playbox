@@ -11,7 +11,11 @@ import {
 
 export type Operator = "+" | "-" | "×" | "÷";
 export type GameStatus = "playing" | "won" | "lost";
-export type OperatorPosition = "up" | "right" | "down" | "left";
+export type OperatorPosition =
+  | "top-left"
+  | "top-right"
+  | "bottom-left"
+  | "bottom-right";
 
 export type Card = Readonly<{
   id: string;
@@ -117,7 +121,7 @@ export function mergeCards(
 }
 
 export function undoGame(state: GameState): GameState {
-  if (state.status === "won" || state.history.length === 0) {
+  if (state.history.length === 0) {
     return state;
   }
 

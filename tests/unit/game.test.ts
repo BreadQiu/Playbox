@@ -112,12 +112,24 @@ describe("drag merge game state", () => {
     expect(fullyUndone.slots).toEqual(newGame([1, 1, 1, 1]).slots);
   });
 
-  it("does not undo a winning board", () => {
-    const won = {
-      ...newGame([24, 2, 3, 4]),
-      status: "won" as const,
-    };
-    expect(undoGame(won)).toBe(won);
+  it("can undo a winning board", () => {
+    let state = newGame([6, 6, 6, 6]);
+    for (const [source, target, operator] of [
+      [0, 1, "×"],
+      [2, 3, "+"],
+      [1, 3, "-"],
+    ] as const) {
+      const result = mergeCards(state, source, target, operator);
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+      state = result.state;
+    }
+
+    expect(state.status).toBe("won");
+    const undone = undoGame(state);
+    expect(undone.status).toBe("playing");
+    expect(undone.history).toHaveLength(2);
+    expect(undone.slots).toEqual(state.history[state.history.length - 1]);
   });
 
   it("resets the current puzzle without restoring merge history", () => {

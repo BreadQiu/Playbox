@@ -10,7 +10,14 @@ import {
   type Operator,
   type OperatorPosition,
 } from "../core/game";
-import { generatePuzzle, type DigitRange, type PuzzleValues } from "../core/puzzle";
+import { GameAudio, parseAudioStyle } from "../audio/game-audio";
+import {
+  findSolutionStep,
+  generatePuzzle,
+  type DigitRange,
+  type PuzzleValues,
+  type SolutionStep,
+} from "../core/puzzle";
 import {
   loadSettings,
   saveSettings,
@@ -21,11 +28,20 @@ import { GameTimer } from "../core/timer";
 
 const OPERATORS: readonly Operator[] = ["+", "-", "×", "÷"];
 const OPERATOR_POSITIONS: readonly OperatorPosition[] = [
-  "up",
-  "down",
-  "left",
-  "right",
+  "top-left",
+  "top-right",
+  "bottom-left",
+  "bottom-right",
 ];
+const REGULAR_CARD_COLORS = [
+  "#ffe49b",
+  "#a9d8ff",
+  "#f3c0e2",
+  "#d7c7ff",
+] as const;
+const WIN_CARD_COLOR = "#aee8cb";
+const LOSS_CARD_COLOR = "#ffb29b";
+const NEARBY_TARGET_DISTANCE = 44;
 
 const operatorLabels: Record<Operator, string> = {
   "+": "加",
@@ -39,6 +55,17 @@ type DragTarget = Readonly<{
   operator: Operator;
 }>;
 
+type CardAppearance = Readonly<{
+  color: (typeof REGULAR_CARD_COLORS)[number];
+  tilt: number;
+}>;
+
+type SolutionCheckState =
+  | "idle"
+  | "hint-solvable"
+  | "solvable"
+  | "unsolvable";
+
 type DragSession = {
   sourceIndex: number;
   sourceCard: Card;
@@ -50,22 +77,50 @@ type DragSession = {
   ghost: HTMLDivElement | null;
   ghostWidth: number;
   ghostHeight: number;
+  nearTargetIndex: number | null;
   currentTarget: DragTarget | null;
 };
 
 export class TwentyFourApp {
   private readonly root: HTMLElement;
   private readonly timer = new GameTimer();
+  private readonly audio: GameAudio;
   private settings: GameSettings;
   private initialValues: PuzzleValues;
+  private solutionStep: SolutionStep | null;
+  private solutionCheckState: SolutionCheckState = "idle";
+  private hintOpen = false;
+  private hintLockedByCheck = false;
+  private hasWonThisRound = false;
   private state: GameState;
   private timerInterval: number | undefined;
   private dragSession: DragSession | null = null;
+  private readonly cardAppearances = new Map<string, CardAppearance>();
 
   constructor(root: HTMLElement) {
     this.root = root;
-    this.settings = loadSettings(getBrowserStorage());
+    const storage = getBrowserStorage();
+    const parameters = new URLSearchParams(window.location.search);
+    this.settings = loadSettings(storage);
+    if (
+      import.meta.env.DEV &&
+      parameters.get("allowUnsolvable") === "1"
+    ) {
+      this.settings = {
+        ...this.settings,
+        allowUnsolvable: true,
+      };
+    }
+    this.audio = new GameAudio(
+      parseAudioStyle(parameters.get("sound")),
+      storage,
+    );
+    document.title =
+      this.audio.style === "tactile"
+        ? "24点积木 · 积木音色"
+        : "24点积木 · 喜剧音色";
     this.initialValues = this.createPuzzle();
+    this.solutionStep = findSolutionStep(this.initialValues);
     this.state = newGame(this.initialValues);
     this.renderShell();
     this.bindEvents();
@@ -112,6 +167,9 @@ export class TwentyFourApp {
           <h1 class="brand">24点</h1>
           <div class="topbar-actions">
             <output class="timer" aria-label="本题用时" data-testid="timer">00:00</output>
+            <button class="icon-button" type="button" aria-label="静音" data-action="audio">
+              ${audioIcon(false)}
+            </button>
             <button class="icon-button" type="button" aria-label="设置" data-action="settings">
               ${gearIcon()}
             </button>
@@ -119,17 +177,31 @@ export class TwentyFourApp {
         </header>
 
         <section class="game-frame" aria-label="24点游戏">
-          <div class="frame-top">
-            <p class="instruction" aria-live="polite">按住一张牌，拖到另一张牌旁边的运算符</p>
-            <span class="step-marks" aria-hidden="true"><i></i><i></i><i></i></span>
+          <div class="frame-tools">
+            <button class="frame-tool" type="button" aria-label="撤销" data-action="undo" disabled>
+              ${undoIcon()}
+            </button>
+            <div class="hint-tool">
+              <button
+                class="frame-tool"
+                type="button"
+                aria-label="提示"
+                aria-controls="hint-bubble"
+                aria-expanded="false"
+                data-action="hint"
+              >
+                ${bulbIcon()}
+              </button>
+              <p class="hint-bubble" id="hint-bubble" data-hint-bubble hidden aria-live="polite"></p>
+            </div>
           </div>
           <div class="board-grid" data-board></div>
-          <div class="result-panel" data-result hidden aria-live="assertive"></div>
+          <p class="sr-only" data-status role="status" aria-live="polite"></p>
         </section>
 
         <nav class="game-controls" aria-label="游戏操作">
-          <button class="control-button control-quiet" type="button" data-action="undo" disabled>
-            <span aria-hidden="true">↶</span> 撤销
+          <button class="control-button solution-button is-neutral" type="button" data-action="solution" disabled>
+            此题有解
           </button>
           <button class="control-button control-quiet" type="button" data-action="retry">
             重来本题
@@ -142,7 +214,6 @@ export class TwentyFourApp {
         <dialog class="settings-dialog" aria-labelledby="settings-title">
           <form method="dialog" class="settings-form">
             <header class="settings-heading">
-              <p class="settings-kicker">出题方式</p>
               <h2 id="settings-title">游戏设置</h2>
               <button class="dialog-close" type="button" aria-label="关闭设置" data-action="close-settings">×</button>
             </header>
@@ -152,12 +223,12 @@ export class TwentyFourApp {
               <label class="choice-card">
                 <input type="radio" name="range" value="1-9" aria-label="1-9" />
                 <span class="choice-title">1–9</span>
-                <span class="choice-copy">节奏更快</span>
+                <span class="choice-copy">简单</span>
               </label>
               <label class="choice-card">
                 <input type="radio" name="range" value="1-13" aria-label="1-13" />
                 <span class="choice-title">1–13</span>
-                <span class="choice-copy">组合更多</span>
+                <span class="choice-copy">困难</span>
               </label>
             </fieldset>
 
@@ -177,16 +248,29 @@ export class TwentyFourApp {
     `;
 
     this.syncSettingsForm();
+    this.renderAudioControl();
     this.renderBoard();
   }
 
   private bindEvents(): void {
     this.root
       .querySelector<HTMLButtonElement>('[data-action="settings"]')
-      ?.addEventListener("click", () => this.openSettings());
+      ?.addEventListener("click", () => {
+        this.audio.play("ui");
+        this.openSettings();
+      });
     this.root
       .querySelector<HTMLButtonElement>('[data-action="close-settings"]')
-      ?.addEventListener("click", () => this.closeSettings());
+      ?.addEventListener("click", () => {
+        this.audio.play("ui");
+        this.closeSettings();
+      });
+    this.root
+      .querySelector<HTMLButtonElement>('[data-action="audio"]')
+      ?.addEventListener("click", () => {
+        this.audio.toggleMuted();
+        this.renderAudioControl();
+      });
     this.root
       .querySelector<HTMLFormElement>(".settings-form")
       ?.addEventListener("submit", (event) => {
@@ -202,11 +286,31 @@ export class TwentyFourApp {
       .querySelector<HTMLButtonElement>('[data-action="undo"]')
       ?.addEventListener("click", () => this.undoMove());
     this.root
+      .querySelector<HTMLButtonElement>('[data-action="hint"]')
+      ?.addEventListener("click", () => this.toggleHint());
+    this.root
+      .querySelector<HTMLButtonElement>('[data-action="solution"]')
+      ?.addEventListener("click", () => this.checkSolution());
+    this.root
       .querySelector<HTMLButtonElement>('[data-action="retry"]')
       ?.addEventListener("click", () => this.retryPuzzle());
     this.root
       .querySelector<HTMLButtonElement>('[data-action="new"]')
       ?.addEventListener("click", () => this.beginNewPuzzle());
+
+    document.addEventListener("pointerdown", this.handleDismissHint, {
+      capture: true,
+      passive: true,
+    });
+    document.addEventListener("keydown", this.handleDismissHint);
+    document.addEventListener("wheel", this.handleDismissHint, {
+      capture: true,
+      passive: true,
+    });
+    document.addEventListener("touchmove", this.handleDismissHint, {
+      capture: true,
+      passive: true,
+    });
 
     document.addEventListener("visibilitychange", () => {
       if (this.state.status !== "playing") return;
@@ -217,6 +321,33 @@ export class TwentyFourApp {
         this.updateTimer();
       }
     });
+  }
+
+  private readonly handleDismissHint = (event: Event): void => {
+    if (!this.hintOpen) return;
+    if (
+      event.type === "pointerdown" &&
+      event.target instanceof Element &&
+      event.target.closest('[data-action="hint"]')
+    ) {
+      return;
+    }
+    this.hideHint();
+  };
+
+  private renderAudioControl(): void {
+    const button = this.root.querySelector<HTMLButtonElement>(
+      '[data-action="audio"]',
+    );
+    if (!button) return;
+    const audio = this.audio.getDebugState();
+    button.innerHTML = audioIcon(audio.muted);
+    button.setAttribute("aria-label", audio.muted ? "开启音效" : "静音");
+    button.title =
+      audio.style === "tactile"
+        ? "积木实体版音效"
+        : "喜剧卡通版音效";
+    button.classList.toggle("is-muted", audio.muted);
   }
 
   private syncSettingsForm(): void {
@@ -255,9 +386,106 @@ export class TwentyFourApp {
     this.beginNewPuzzle();
   }
 
+  private resetPuzzleAids(): void {
+    this.solutionStep = findSolutionStep(this.initialValues);
+    this.solutionCheckState = "idle";
+    this.hintLockedByCheck = false;
+    this.hideHint();
+    this.renderHintControl();
+  }
+
+  private hideHint(): void {
+    this.hintOpen = false;
+    const bubble = this.root.querySelector<HTMLElement>("[data-hint-bubble]");
+    const hint = this.root.querySelector<HTMLButtonElement>(
+      '[data-action="hint"]',
+    );
+    if (bubble) {
+      bubble.hidden = true;
+      bubble.textContent = "";
+    }
+    hint?.setAttribute("aria-expanded", "false");
+  }
+
+  private renderHintControl(): void {
+    const hint = this.root.querySelector<HTMLButtonElement>(
+      '[data-action="hint"]',
+    );
+    if (!hint) return;
+    hint.disabled = this.hintLockedByCheck;
+    hint.classList.toggle("is-spent", this.hintLockedByCheck);
+  }
+
+  private toggleHint(): void {
+    if (this.hintOpen) {
+      this.hideHint();
+      return;
+    }
+
+    const bubble = this.root.querySelector<HTMLElement>("[data-hint-bubble]");
+    const hint = this.root.querySelector<HTMLButtonElement>(
+      '[data-action="hint"]',
+    );
+    if (!bubble) return;
+
+    this.hintOpen = true;
+    bubble.textContent = this.solutionStep
+      ? `${this.solutionStep.left} ${displayOperator(this.solutionStep.operator)} ${this.solutionStep.right}`
+      : "此题无解";
+    bubble.hidden = false;
+    hint?.setAttribute("aria-expanded", "true");
+
+    if (!this.solutionStep) {
+      this.audio.play("unsolvable");
+      this.markUnsolvable();
+    } else {
+      this.audio.play("hint");
+      if (
+        this.settings.allowUnsolvable &&
+        this.solutionCheckState === "idle"
+      ) {
+        this.solutionCheckState = "hint-solvable";
+        this.renderResult();
+      }
+    }
+  }
+
+  private checkSolution(): void {
+    if (
+      !this.settings.allowUnsolvable ||
+      this.solutionCheckState !== "idle"
+    ) {
+      return;
+    }
+
+    if (this.solutionStep) {
+      this.audio.play("check-fail");
+      this.flashGuessWrong();
+      this.solutionCheckState = "solvable";
+      this.renderResult();
+      this.hintLockedByCheck = false;
+    } else {
+      this.audio.play("check-success");
+      this.markUnsolvable();
+      this.hintLockedByCheck = true;
+    }
+    this.renderHintControl();
+  }
+
+  private markUnsolvable(): void {
+    this.solutionCheckState = "unsolvable";
+    this.timer.stop();
+    this.renderResult();
+    this.updateTimer();
+  }
+
   private beginNewPuzzle(): void {
+    this.audio.play("new");
+    this.cardAppearances.clear();
+    this.hasWonThisRound = false;
     this.initialValues = this.createPuzzle();
     this.state = newGame(this.initialValues);
+    this.resetPuzzleAids();
     this.timer.reset();
     this.timer.start();
     this.renderBoard();
@@ -265,8 +493,13 @@ export class TwentyFourApp {
   }
 
   private retryPuzzle(): void {
+    this.audio.play("retry");
+    this.cardAppearances.clear();
     this.state = resetRound(this.state, this.initialValues);
-    this.timer.start();
+    this.resetPuzzleAids();
+    if (!this.hasWonThisRound) {
+      this.timer.start();
+    }
     this.renderBoard();
     this.updateTimer();
   }
@@ -276,9 +509,11 @@ export class TwentyFourApp {
     const nextState = undoGame(this.state);
     if (nextState === this.state) return;
     this.state = nextState;
+    this.audio.play("undo");
     if (wasLost) {
       this.timer.start();
     }
+    this.hideHint();
     this.renderBoard();
     this.updateTimer();
   }
@@ -291,12 +526,18 @@ export class TwentyFourApp {
       .map((card, slotIndex) => {
         if (!card) {
           return `
-            <div class="card-slot is-empty" data-slot-index="${slotIndex}">
-              <div class="slot-placeholder" aria-hidden="true"></div>
-            </div>
+            <div class="card-slot is-empty" data-slot-index="${slotIndex}" aria-hidden="true"></div>
           `;
         }
 
+        const appearance = this.getCardAppearance(card);
+        const isFinalCard =
+          this.state.slots.filter((slotCard) => slotCard !== null).length === 1;
+        const cardColor = isFinalCard
+          ? this.state.status === "won"
+            ? WIN_CARD_COLOR
+            : LOSS_CARD_COLOR
+          : appearance.color;
         return `
           <div class="card-slot slot-${slotIndex}" data-slot-index="${slotIndex}">
             <div
@@ -305,6 +546,7 @@ export class TwentyFourApp {
               role="img"
               aria-label="数字 ${formatCardValue(card)}"
               aria-description="按住并拖动到另一张数字牌旁边的运算符"
+              style="--card-color: ${cardColor}; --card-tilt: ${appearance.tilt}deg"
             >
               <span class="card-value ${formatCardValue(card).length > 3 ? "is-long" : ""}">${formatCardValue(card)}</span>
               ${card.expression === formatCardValue(card) ? "" : `<span class="card-expression">${escapeHtml(card.expression)}</span>`}
@@ -317,11 +559,34 @@ export class TwentyFourApp {
 
     const undo = this.root.querySelector<HTMLButtonElement>('[data-action="undo"]');
     if (undo) {
-      undo.disabled =
-        this.state.history.length === 0 || this.state.status === "won";
+      undo.disabled = this.state.history.length === 0;
     }
 
     this.renderResult();
+  }
+
+  private getCardAppearance(card: Card): CardAppearance {
+    const existing = this.cardAppearances.get(card.id);
+    if (existing) return existing;
+
+    const usedColors = new Set(
+      this.state.slots
+        .filter((otherCard): otherCard is Card => Boolean(otherCard))
+        .filter((otherCard) => otherCard.id !== card.id)
+        .map((otherCard) => this.cardAppearances.get(otherCard.id)?.color)
+        .filter((color) => color !== undefined),
+    );
+    const availableColors = REGULAR_CARD_COLORS.filter(
+      (color) => !usedColors.has(color),
+    );
+    const colorPool =
+      availableColors.length > 0 ? availableColors : REGULAR_CARD_COLORS;
+    const appearance: CardAppearance = {
+      color: colorPool[Math.floor(Math.random() * colorPool.length)],
+      tilt: Math.round((Math.random() * 6.4 - 3.2) * 10) / 10,
+    };
+    this.cardAppearances.set(card.id, appearance);
+    return appearance;
   }
 
   private renderOperators(card: Card, slotIndex: number): string {
@@ -349,27 +614,96 @@ export class TwentyFourApp {
   }
 
   private renderResult(): void {
-    const panel = this.root.querySelector<HTMLElement>("[data-result]");
     const board = this.root.querySelector<HTMLElement>(".game-frame");
-    if (!panel || !board) return;
+    const status = this.root.querySelector<HTMLElement>("[data-status]");
+    const newButton = this.root.querySelector<HTMLButtonElement>(
+      '[data-action="new"]',
+    );
+    if (!board) return;
 
-    board.classList.toggle("is-won", this.state.status === "won");
+    const won = this.state.status === "won";
+    const confirmedUnsolvable =
+      this.solutionCheckState === "unsolvable";
+    const showNext = won || this.hasWonThisRound || confirmedUnsolvable;
+    board.classList.toggle("is-won", won);
     board.classList.toggle("is-lost", this.state.status === "lost");
+    if (newButton) {
+      newButton.textContent = showNext ? "下一题" : "换一题";
+      newButton.classList.toggle("is-next", showNext);
+    }
+    this.renderSolutionButton();
+    if (status) {
+      status.textContent =
+        this.state.status === "won"
+          ? "刚好组成 24，计时已暂停"
+          : confirmedUnsolvable
+            ? "此题无解，计时已暂停"
+          : this.state.status === "lost"
+            ? "本题未得到 24，可以撤销或重来本题"
+            : this.solutionCheckState === "solvable" ||
+                this.solutionCheckState === "hint-solvable"
+              ? "此题有解"
+            : "";
+    }
+  }
 
-    if (this.state.status === "playing") {
-      panel.hidden = true;
-      panel.innerHTML = "";
+  private renderSolutionButton(): void {
+    const button = this.root.querySelector<HTMLButtonElement>(
+      '[data-action="solution"]',
+    );
+    if (!button) return;
+
+    button.classList.remove(
+      "is-neutral",
+      "is-checkable",
+      "is-solvable",
+      "is-unsolvable",
+    );
+
+    if (this.state.status === "won" || this.hasWonThisRound) {
+      button.textContent = "此题有解";
+      button.classList.add("is-neutral");
+      button.disabled = true;
+      button.setAttribute("aria-label", "此题有解");
       return;
     }
 
-    const finalCard = this.state.slots.find((card): card is Card => card !== null);
-    if (!finalCard) return;
-    const finalValue = formatCardValue(finalCard);
-    panel.hidden = false;
-    panel.innerHTML =
-      this.state.status === "won"
-        ? `<strong>漂亮，刚好 24！</strong><span>用了 ${this.formatTime(this.timer.elapsedMs)}</span>`
-        : `<strong>最后是 ${finalValue}</strong><span>撤销一步再试，或重新开始本题</span>`;
+    if (this.solutionCheckState === "unsolvable") {
+      button.textContent = "此题无解";
+      button.classList.add("is-unsolvable");
+      button.disabled = true;
+      button.setAttribute("aria-label", "此题无解");
+      return;
+    }
+
+    if (this.solutionCheckState === "solvable") {
+      button.textContent = "此题有解";
+      button.classList.add("is-solvable");
+      button.disabled = true;
+      button.setAttribute("aria-label", "此题有解");
+      return;
+    }
+
+    if (this.solutionCheckState === "hint-solvable") {
+      button.textContent = "此题有解";
+      button.classList.add("is-neutral");
+      button.disabled = true;
+      button.setAttribute("aria-label", "此题有解");
+      return;
+    }
+
+    if (!this.settings.allowUnsolvable) {
+      button.textContent = "此题有解";
+      button.classList.add("is-neutral");
+      button.disabled = true;
+      button.setAttribute("aria-label", "此题保证有解");
+      return;
+    }
+
+    button.textContent = "无解";
+    button.classList.add("is-checkable");
+    button.disabled = false;
+    button.setAttribute("aria-label", "检查本题是否有解");
   }
 
   private beginPointerDrag(event: PointerEvent): void {
@@ -404,6 +738,7 @@ export class TwentyFourApp {
       ghost: null,
       ghostWidth: 0,
       ghostHeight: 0,
+      nearTargetIndex: null,
       currentTarget: null,
     };
     window.addEventListener("pointermove", this.handlePointerMove, {
@@ -466,9 +801,15 @@ export class TwentyFourApp {
     }
 
     this.state = result.state;
-    if (this.state.status !== "playing") {
+    this.audio.play("merge", Math.max(0, this.state.history.length - 1));
+    if (this.state.status === "won") {
+      this.hasWonThisRound = true;
       this.timer.stop();
+      this.audio.play("win");
+    } else if (this.state.status === "lost") {
+      this.audio.play("lose");
     }
+    this.hideHint();
     this.renderBoard();
     this.updateTimer();
     this.flashMergedSlot(target.targetIndex);
@@ -492,6 +833,7 @@ export class TwentyFourApp {
 
   private startVisualDrag(session: DragSession): void {
     session.moved = true;
+    this.audio.play("lift");
     const board = this.root.querySelector<HTMLElement>("[data-board]");
     const sourceSlot = this.root.querySelector<HTMLElement>(
       `[data-slot-index="${session.sourceIndex}"]`,
@@ -506,6 +848,10 @@ export class TwentyFourApp {
     ghost.style.setProperty("--ghost-width", `${ghostWidth}px`);
     ghost.style.setProperty("--ghost-height", `${ghostHeight}px`);
     ghost.style.setProperty("--ghost-color", computedStyle.backgroundColor);
+    ghost.style.setProperty(
+      "--ghost-tilt",
+      `${this.getCardAppearance(session.sourceCard).tilt - 2}deg`,
+    );
     document.body.append(ghost);
     session.ghost = ghost;
     session.ghostWidth = ghostWidth;
@@ -550,18 +896,152 @@ export class TwentyFourApp {
     const session = this.dragSession;
     if (!session) return;
 
-    const element = document.elementFromPoint(clientX, clientY);
-    const operatorButton = element?.closest<HTMLButtonElement>(
-      "[data-target-index][data-operator]",
+    const nearTargetIndex = this.findNearbyTarget(
+      clientX,
+      clientY,
+      session,
     );
+    this.updateNearbyTarget(session, nearTargetIndex);
+
+    const operatorButton =
+      this.findOperatorFromGhost(session, nearTargetIndex) ??
+      this.findOperatorAtPoint(clientX, clientY, nearTargetIndex);
     const nextTarget =
-      operatorButton && !operatorButton.disabled
+      operatorButton && nearTargetIndex !== null
         ? {
-            targetIndex: Number(operatorButton.dataset.targetIndex),
+            targetIndex: nearTargetIndex,
             operator: operatorButton.dataset.operator as Operator,
           }
         : null;
 
+    this.updateCurrentTarget(session, nextTarget);
+  }
+
+  private findNearbyTarget(
+    clientX: number,
+    clientY: number,
+    session: DragSession,
+  ): number | null {
+    if (session.ghost) {
+      const ghostRect = session.ghost.getBoundingClientRect();
+      const ghostTarget = this.findNearbyCard(
+        ghostRect.left + ghostRect.width / 2,
+        ghostRect.top + ghostRect.height / 2,
+        session.sourceIndex,
+      );
+      if (ghostTarget !== null) return ghostTarget;
+    }
+
+    return this.findNearbyCard(clientX, clientY, session.sourceIndex);
+  }
+
+  private findNearbyCard(
+    clientX: number,
+    clientY: number,
+    sourceIndex: number,
+  ): number | null {
+    let nearestIndex: number | null = null;
+    let nearestDistance = Number.POSITIVE_INFINITY;
+
+    for (const cardElement of this.root.querySelectorAll<HTMLElement>(
+      "[data-card-index]",
+    )) {
+      const targetIndex = Number(cardElement.dataset.cardIndex);
+      if (targetIndex === sourceIndex || !this.state.slots[targetIndex]) {
+        continue;
+      }
+
+      const cardRect = cardElement.getBoundingClientRect();
+      const distance = distanceToRect(clientX, clientY, cardRect);
+      if (distance <= NEARBY_TARGET_DISTANCE && distance < nearestDistance) {
+        nearestIndex = targetIndex;
+        nearestDistance = distance;
+      }
+    }
+
+    return nearestIndex;
+  }
+
+  private findOperatorAtPoint(
+    clientX: number,
+    clientY: number,
+    targetIndex: number | null,
+  ): HTMLButtonElement | null {
+    if (targetIndex === null) return null;
+    const element = document.elementFromPoint(clientX, clientY);
+    const button = element?.closest<HTMLButtonElement>(
+      "[data-target-index][data-operator]",
+    );
+    if (
+      !button ||
+      button.disabled ||
+      Number(button.dataset.targetIndex) !== targetIndex
+    ) {
+      return null;
+    }
+    return button;
+  }
+
+  private findOperatorFromGhost(
+    session: DragSession,
+    targetIndex: number | null,
+  ): HTMLButtonElement | null {
+    if (!session.ghost || targetIndex === null) return null;
+    const ghostRect = session.ghost.getBoundingClientRect();
+    const ghostCenter = {
+      x: ghostRect.left + ghostRect.width / 2,
+      y: ghostRect.top + ghostRect.height / 2,
+    };
+    let nearest: { button: HTMLButtonElement; distance: number } | null = null;
+
+    for (const button of this.root.querySelectorAll<HTMLButtonElement>(
+      `[data-target-index="${targetIndex}"][data-operator]`,
+    )) {
+      if (button.disabled) continue;
+      const operatorRect = button.getBoundingClientRect();
+      const distance = Math.hypot(
+        operatorRect.left + operatorRect.width / 2 - ghostCenter.x,
+        operatorRect.top + operatorRect.height / 2 - ghostCenter.y,
+      );
+      const ghostCenterInside =
+        ghostCenter.x >= operatorRect.left &&
+        ghostCenter.x <= operatorRect.right &&
+        ghostCenter.y >= operatorRect.top &&
+        ghostCenter.y <= operatorRect.bottom;
+      if (!ghostCenterInside) continue;
+      if (!nearest || distance < nearest.distance) {
+        nearest = { button, distance };
+      }
+    }
+
+    return nearest?.button ?? null;
+  }
+
+  private updateNearbyTarget(
+    session: DragSession,
+    targetIndex: number | null,
+  ): void {
+    if (session.nearTargetIndex === targetIndex) return;
+
+    if (session.nearTargetIndex !== null) {
+      this.root
+        .querySelector<HTMLElement>(
+          `[data-slot-index="${session.nearTargetIndex}"]`,
+        )
+        ?.classList.remove("is-near");
+    }
+    session.nearTargetIndex = targetIndex;
+    if (targetIndex !== null) {
+      this.root
+        .querySelector<HTMLElement>(`[data-slot-index="${targetIndex}"]`)
+        ?.classList.add("is-near");
+    }
+  }
+
+  private updateCurrentTarget(
+    session: DragSession,
+    nextTarget: DragTarget | null,
+  ): void {
     if (
       session.currentTarget?.targetIndex === nextTarget?.targetIndex &&
       session.currentTarget?.operator === nextTarget?.operator
@@ -576,9 +1056,9 @@ export class TwentyFourApp {
     this.root
       .querySelectorAll(".card-slot.is-target")
       .forEach((slot) => slot.classList.remove("is-target"));
-    this.root.querySelector(".merge-preview")?.remove();
 
     if (!nextTarget) return;
+    this.audio.play("operator", OPERATORS.indexOf(nextTarget.operator));
     const targetSlot = this.root.querySelector<HTMLElement>(
       `[data-slot-index="${nextTarget.targetIndex}"]`,
     );
@@ -587,35 +1067,22 @@ export class TwentyFourApp {
     );
     targetSlot?.classList.add("is-target");
     targetOperator?.classList.add("is-targeted");
-
-    const preview = mergeCards(
-      this.state,
-      session.sourceIndex,
-      nextTarget.targetIndex,
-      nextTarget.operator,
-    );
-    const previewCard = preview.ok
-      ? preview.state.slots[nextTarget.targetIndex]
-      : null;
-    if (previewCard && targetSlot) {
-      const label = document.createElement("span");
-      label.className = "merge-preview";
-      label.textContent = `= ${formatCardValue(previewCard)}`;
-      targetSlot.append(label);
-    }
   }
 
   private finishVisualDrag(): void {
     if (!this.dragSession) return;
     const sourceElement = this.dragSession.sourceElement;
     this.dragSession.ghost?.remove();
-    this.root.querySelector(".merge-preview")?.remove();
     this.root.querySelector<HTMLElement>("[data-board]")?.classList.remove(
       "is-dragging",
     );
     this.root
-      .querySelectorAll(".card-slot.is-source, .card-slot.is-target")
-      .forEach((slot) => slot.classList.remove("is-source", "is-target"));
+      .querySelectorAll(
+        ".card-slot.is-source, .card-slot.is-target, .card-slot.is-near",
+      )
+      .forEach((slot) =>
+        slot.classList.remove("is-source", "is-target", "is-near"),
+      );
     this.root
       .querySelectorAll(".operator.is-targeted")
       .forEach((button) => button.classList.remove("is-targeted"));
@@ -632,6 +1099,7 @@ export class TwentyFourApp {
   }
 
   private rejectSource(sourceIndex: number): void {
+    this.audio.play("invalid");
     const slot = this.root.querySelector<HTMLElement>(
       `[data-slot-index="${sourceIndex}"]`,
     );
@@ -645,6 +1113,18 @@ export class TwentyFourApp {
     );
     slot?.classList.add("is-merged");
     window.setTimeout(() => slot?.classList.remove("is-merged"), 280);
+  }
+
+  private flashGuessWrong(): void {
+    const frame = this.root.querySelector<HTMLElement>(".game-frame");
+    if (!frame) return;
+    frame.classList.remove("is-guess-wrong");
+    void frame.offsetWidth;
+    frame.classList.add("is-guess-wrong");
+    window.setTimeout(
+      () => frame.classList.remove("is-guess-wrong"),
+      420,
+    );
   }
 
   private updateTimer(): void {
@@ -675,6 +1155,10 @@ export class TwentyFourApp {
           running: this.timer.isRunning,
         },
         settings: this.settings,
+        audio: this.audio.getDebugState(),
+        solutionCheck: this.solutionCheckState,
+        hintVisible: this.hintOpen,
+        wonThisRound: this.hasWonThisRound,
         slots: this.state.slots.map((card, index) =>
           card
             ? {
@@ -687,6 +1171,7 @@ export class TwentyFourApp {
         drag: this.dragSession?.moved
           ? {
               source: this.dragSession.sourceIndex,
+              nearTarget: this.dragSession.nearTargetIndex,
               target: this.dragSession.currentTarget,
             }
           : null,
@@ -707,6 +1192,37 @@ function escapeHtml(value: string): string {
     .replaceAll('"', "&quot;");
 }
 
+function undoIcon(): string {
+  return `
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M2.5 8h11.5a7 7 0 0 1 7 7 7 7 0 0 1-7 7H2.5"></path>
+      <path d="M8 2.5 2.5 8 8 13.5"></path>
+    </svg>
+  `;
+}
+
+function bulbIcon(): string {
+  return `
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M9 18h6M10 21h4"></path>
+      <path d="M8.5 15.5a7 7 0 1 1 7 0c-.9.7-1.5 1.6-1.5 2.5h-4c0-.9-.6-1.8-1.5-2.5Z"></path>
+    </svg>
+  `;
+}
+
+function audioIcon(muted: boolean): string {
+  return `
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M4 9h4l5-4v14l-5-4H4Z"></path>
+      ${
+        muted
+          ? '<path d="m16 9 5 5m0-5-5 5"></path>'
+          : '<path d="M16 9.5a4 4 0 0 1 0 5M18.5 7a7 7 0 0 1 0 10"></path>'
+      }
+    </svg>
+  `;
+}
+
 function gearIcon(): string {
   return `
     <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -714,6 +1230,24 @@ function gearIcon(): string {
       <circle cx="12" cy="13" r="3.1"></circle>
     </svg>
   `;
+}
+
+function distanceToRect(
+  x: number,
+  y: number,
+  rect: DOMRect,
+): number {
+  const horizontalDistance = Math.max(
+    0,
+    rect.left - x,
+    x - rect.right,
+  );
+  const verticalDistance = Math.max(
+    0,
+    rect.top - y,
+    y - rect.bottom,
+  );
+  return Math.hypot(horizontalDistance, verticalDistance);
 }
 
 function clamp(value: number, minimum: number, maximum: number): number {
