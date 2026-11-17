@@ -1,6 +1,6 @@
-# 24 Point Tile Game Progress
+# Blocky 24 Development Progress
 
-Original prompt: 设计一个打开即玩的 24 点网页游戏，支持电脑、手机和平板拖拽操作；随机数字可选 1–9 或 1–13，可选择是否出现无解题，并有正计时。视觉采用黄色积木卡通方向。首版只做单机，不做对战和音效。
+Original prompt: 设计一个打开即玩的 24 点网页游戏，支持电脑、手机和平板拖拽操作；随机数字可选 1–9 或 1–13，可选择是否出现无解题，并有正计时。视觉采用黄色积木卡通方向。首版只做单机。后续增加了两种卡通音效和 Playbox 多游戏仓库结构。
 
 ## Implemented
 
@@ -18,7 +18,6 @@ Original prompt: 设计一个打开即玩的 24 点网页游戏，支持电脑�
 - Moved operators to target-card corners with proximity reveal and 56×56 hit boxes (48×48 on phones and landscape).
 - Floating card overlap or pointer overlap can select an operator; selected targets grow without overlapping any other hit area.
 - Removed both victory and failure panels; the board and controls now carry the result state.
-- Pinned local changes were staged before this refinement; new refinements remain unstaged.
 - Simplified settings copy to “简单” and “困难”, moved the title up, made the apply button green, and added hover growth.
 - Regular cards now use four mutually distinct colors; mint and peach are reserved for the final win/loss card.
 - Removed the drag-time answer preview pill.
@@ -38,16 +37,21 @@ Original prompt: 设计一个打开即玩的 24 点网页游戏，支持电脑�
 - Undo arrow now has matching rounded top-right and bottom-right corners.
 - Hint bubbles sit to the left of the bulb at the same vertical center.
 - “下一题” uses the same shadow color as “重来本题”.
+- “此题有解”和“此题无解”的检查结果在点击“重来本题”后保持不变；无解状态仍显示“下一题”并保持计时暂停。
+- Added procedural tactile and comedy Web Audio palettes, a persisted mute control, and `sound` URL preview options.
+- “无解”猜测正确时播放成功音效；猜错时播放失败滑音并触发短暂摇晃。
+- Reorganized the project as the Playbox npm workspace with Blocky 24 under `games/blocky-24/`.
 
 ## Verification
 
-- `npm test -- --run`: 30/30 passing.
-- `npm run test:e2e`: 39/39 passing in local Edge.
+- `npm test -- --run`: 34/34 passing.
+- `npm run test:e2e`: 46/46 passing in local Edge.
 - Desktop, 390×844 phone, and 820×1180 iPad screenshots were inspected with no console errors.
 - `npm run build` and `npm run verify:pages` pass; the Pages subpath check reports three cards after one merge.
 - Production build uses the system Trebuchet MS numeric font stack and has no font package dependency.
+- Playbox catalog and `/Playbox/blocky-24/` subpath verification pass.
 
 ## Remaining
 
-- Publish to a GitHub repository and verify the live Pages URL.
-- Audio and multiplayer are intentionally deferred.
+- Publish Playbox v0.1.0 and verify the live GitHub Pages URL.
+- Multiplayer is intentionally deferred.

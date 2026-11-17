@@ -941,6 +941,30 @@ button:disabled {
     padding-left: 12px;
   }
 
+  .topbar {
+    gap: 8px;
+  }
+
+  .brand {
+    font-size: 1.55rem;
+  }
+
+  .topbar-actions {
+    gap: 6px;
+  }
+
+  .timer {
+    min-width: 72px;
+    padding-right: 9px;
+    padding-left: 9px;
+    font-size: 1rem;
+  }
+
+  .icon-button {
+    width: 44px;
+    height: 44px;
+  }
+
   .game-frame {
     border-width: 4px;
     border-radius: 27px;

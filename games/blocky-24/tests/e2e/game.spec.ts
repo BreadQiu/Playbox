@@ -182,7 +182,7 @@ async function shadowColor(locator: Locator): Promise<string | null> {
 
 test("tactile audio preview is available from its own URL", async ({ page }) => {
   await page.goto("/?puzzle=6,2,8,4&sound=tactile");
-  await expect(page).toHaveTitle("24点积木 · 积木音色");
+  await expect(page).toHaveTitle("Blocky 24 · 积木音色");
 
   let state = await page.evaluate(() =>
     JSON.parse(window.render_game_to_text()),
@@ -215,7 +215,7 @@ test("tactile audio preview is available from its own URL", async ({ page }) => 
 
 test("comedy audio preview is available from its own URL", async ({ page }) => {
   await page.goto("/?puzzle=6,2,8,4&sound=comedy");
-  await expect(page).toHaveTitle("24点积木 · 喜剧音色");
+  await expect(page).toHaveTitle("Blocky 24 · 喜剧音色");
 
   let state = await page.evaluate(() =>
     JSON.parse(window.render_game_to_text()),
@@ -274,10 +274,40 @@ test("comedy solution check plays success for no solution and failure for solvab
   expect(state.audio.lastCue).toBe("check-success");
 });
 
+test("retry keeps a revealed solvable or unsolvable status", async ({
+  page,
+}) => {
+  await page.goto(
+    "/?puzzle=6,2,8,4&sound=tactile&allowUnsolvable=1",
+  );
+  let solution = page.locator('[data-action="solution"]');
+  await solution.click();
+  await expect(solution).toHaveText("此题有解");
+  await page.getByRole("button", { name: "重来本题" }).click();
+  await expect(solution).toHaveText("此题有解");
+  await expect(solution).toBeDisabled();
+
+  await page.goto(
+    "/?puzzle=1,1,1,1&sound=tactile&allowUnsolvable=1",
+  );
+  solution = page.locator('[data-action="solution"]');
+  await solution.click();
+  await expect(solution).toHaveText("此题无解");
+  await expect(page.getByRole("button", { name: "下一题" })).toBeVisible();
+  await page.getByRole("button", { name: "重来本题" }).click();
+  await expect(solution).toHaveText("此题无解");
+  await expect(solution).toBeDisabled();
+  await expect(page.getByRole("button", { name: "下一题" })).toBeVisible();
+  const state = await page.evaluate(() =>
+    JSON.parse(window.render_game_to_text()),
+  );
+  expect(state.timer.running).toBe(false);
+});
+
 test("opens directly into a playable 24-point board", async ({ page }) => {
   await page.goto("/");
 
-  await expect(page.getByRole("heading", { name: "24点" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Blocky 24" })).toBeVisible();
   await expect(
     page.getByText("按住一张牌，拖到另一张牌旁边的运算符"),
   ).toHaveCount(0);
@@ -385,7 +415,7 @@ test("hint shows the first operation from the original cards", async ({
   ).toBeLessThanOrEqual(2);
   expect(bubbleBox.x + bubbleBox.width).toBeLessThanOrEqual(hintBox.x);
 
-  await page.getByRole("heading", { name: "24点" }).click();
+  await page.getByRole("heading", { name: "Blocky 24" }).click();
   await expect(bubble).toBeHidden();
 
   await hint.click();
@@ -475,8 +505,9 @@ test("solution checking follows settings and puzzle solvability", async ({
   expect(state.timer.running).toBe(true);
 
   await page.getByRole("button", { name: "重来本题" }).click();
-  await expect(solution).toHaveText("无解");
-  await expect(solution).toBeEnabled();
+  await expect(solution).toHaveText("此题有解");
+  await expect(solution).toBeDisabled();
+  await expect(solution).toHaveCSS("background-color", "rgb(255, 255, 255)");
 });
 
 test("manual solvable check after a wrong merge keeps the timer running", async ({
@@ -496,7 +527,7 @@ test("manual solvable check after a wrong merge keeps the timer running", async 
   await page.getByRole("button", { name: "提示" }).click();
   await expect(page.locator("[data-hint-bubble]")).toBeVisible();
   await expect(solution).toHaveText("此题有解");
-  await page.getByRole("heading", { name: "24点" }).click();
+  await page.getByRole("heading", { name: "Blocky 24" }).click();
   await expect(page.locator("[data-hint-bubble]")).toBeHidden();
   expect(await shadowColor(solution)).toBe(
     await shadowColor(page.getByRole("button", { name: "重来本题" })),
@@ -727,7 +758,7 @@ test("the game still opens when localStorage access is blocked", async ({
   });
   await page.goto("/");
 
-  await expect(page.getByRole("heading", { name: "24点" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Blocky 24" })).toBeVisible();
   await expect(page.locator("[data-card-index]")).toHaveCount(4);
 });
 

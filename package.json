@@ -1,14 +1,17 @@
 {
-  "name": "twenty-four-tiles",
-  "private": true,
+  "name": "playbox",
   "version": "0.1.0",
+  "private": true,
   "type": "module",
+  "workspaces": [
+    "games/*"
+  ],
   "scripts": {
-    "dev": "vite",
-    "build": "tsc --noEmit && vite build",
-    "preview": "vite preview",
-    "test": "vitest",
-    "test:e2e": "playwright test",
+    "dev": "npm run dev --workspace @playbox/blocky-24",
+    "test": "npm run test --workspace @playbox/blocky-24 --",
+    "test:e2e": "npm run test:e2e --workspace @playbox/blocky-24",
+    "build": "node scripts/build-pages.mjs",
+    "preview": "node scripts/serve-pages.mjs",
     "verify:pages": "node scripts/verify-pages.cjs"
   },
   "devDependencies": {

@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="Playbox 是一个持续更新的浏览器小游戏收藏盒，第一款游戏是 Blocky 24。"
+    />
+    <meta name="theme-color" content="#FFD84D" />
+    <meta property="og:title" content="Playbox — 打开盒子，随便玩一局" />
+    <meta
+      property="og:description"
+      content="小型浏览器游戏收藏盒。第一款游戏：Blocky 24。"
+    />
+    <meta property="og:type" content="website" />
+    <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="./styles.css" />
+    <title>Playbox — 小游戏收藏盒</title>
+  </head>
+  <body>
+    <main class="playbox-shell">
+      <header class="playbox-header">
+        <a class="wordmark" href="./" aria-label="Playbox 首页">
+          <span class="wordmark-box" aria-hidden="true">
+            <i></i><i></i><i></i><i></i>
+          </span>
+          <span>Playbox</span>
+        </a>
+        <p class="edition">收藏盒 Vol. 0.1</p>
+      </header>
+
+      <section class="hero" aria-labelledby="hero-title">
+        <div class="hero-copy">
+          <p class="hero-kicker">一只装满小游戏的盒子</p>
+          <h1 id="hero-title">打开盒子，<br />随便玩一局。</h1>
+          <p class="hero-description">
+            Playbox 收集轻巧、有点手感的浏览器游戏。第一款上架的是黄色积木风
+            24 点：拖动数字牌，拼出刚好 24。
+          </p>
+          <a class="primary-link" href="./blocky-24/">
+            开始玩 Blocky 24
+            <span aria-hidden="true">打开盒子 →</span>
+          </a>
+          <p class="quick-note">电脑、手机和平板都能直接玩，无需安装。</p>
+        </div>
+
+        <a class="game-feature" href="./blocky-24/" aria-label="打开 Blocky 24">
+          <span class="feature-tab" aria-hidden="true">第一盒</span>
+          <span class="feature-window">
+            <img
+              src="./assets/blocky-24-preview.png"
+              alt="Blocky 24 黄色积木风数字牌游戏界面"
+              width="1440"
+              height="900"
+            />
+          </span>
+          <span class="feature-caption">
+            <span>
+              <strong>Blocky 24</strong>
+              <small>拖动 · 计算 · 拼出 24</small>
+            </span>
+            <b>v0.1.0</b>
+          </span>
+          <span class="loose-tile tile-a" aria-hidden="true">6</span>
+          <span class="loose-tile tile-b" aria-hidden="true">×</span>
+          <span class="loose-tile tile-c" aria-hidden="true">4</span>
+        </a>
+      </section>
+
+      <section class="shelf" aria-labelledby="shelf-title">
+        <header class="shelf-heading">
+          <h2 id="shelf-title">游戏架上</h2>
+          <p>目前有 1 个游戏，以后继续往盒子里装。</p>
+        </header>
+
+        <a class="shelf-entry" href="./blocky-24/">
+          <span class="shelf-index">01</span>
+          <span class="shelf-copy">
+            <strong>Blocky 24</strong>
+            <small>四张数字牌，四则运算，最后刚好 24。</small>
+          </span>
+          <span class="shelf-tags">数字 · 拖拽 · 音效</span>
+          <span class="shelf-action">进入游戏</span>
+        </a>
+      </section>
+
+      <footer class="playbox-footer">
+        <strong>Playbox</strong>
+        <span>为短暂休息做的小游戏。</span>
+        <span>v0.1.0 · 2026</span>
+      </footer>
+    </main>
+  </body>
+</html>

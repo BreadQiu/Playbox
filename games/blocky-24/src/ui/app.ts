@@ -117,8 +117,8 @@ export class TwentyFourApp {
     );
     document.title =
       this.audio.style === "tactile"
-        ? "24点积木 · 积木音色"
-        : "24点积木 · 喜剧音色";
+        ? "Blocky 24 · 积木音色"
+        : "Blocky 24 · 喜剧音色";
     this.initialValues = this.createPuzzle();
     this.solutionStep = findSolutionStep(this.initialValues);
     this.state = newGame(this.initialValues);
@@ -164,7 +164,7 @@ export class TwentyFourApp {
     this.root.innerHTML = `
       <main class="app-shell">
         <header class="topbar">
-          <h1 class="brand">24点</h1>
+          <h1 class="brand">Blocky 24</h1>
           <div class="topbar-actions">
             <output class="timer" aria-label="本题用时" data-testid="timer">00:00</output>
             <button class="icon-button" type="button" aria-label="静音" data-action="audio">
@@ -176,7 +176,7 @@ export class TwentyFourApp {
           </div>
         </header>
 
-        <section class="game-frame" aria-label="24点游戏">
+        <section class="game-frame" aria-label="Blocky 24 游戏">
           <div class="frame-tools">
             <button class="frame-tool" type="button" aria-label="撤销" data-action="undo" disabled>
               ${undoIcon()}
@@ -494,10 +494,19 @@ export class TwentyFourApp {
 
   private retryPuzzle(): void {
     this.audio.play("retry");
+    const previousSolutionState = this.solutionCheckState;
+    const previousHintLocks = this.hintLockedByCheck;
     this.cardAppearances.clear();
     this.state = resetRound(this.state, this.initialValues);
-    this.resetPuzzleAids();
-    if (!this.hasWonThisRound) {
+    this.solutionStep = findSolutionStep(this.initialValues);
+    this.hideHint();
+    this.solutionCheckState = previousSolutionState;
+    this.hintLockedByCheck = previousHintLocks;
+    this.renderHintControl();
+    if (
+      !this.hasWonThisRound &&
+      this.solutionCheckState !== "unsolvable"
+    ) {
       this.timer.start();
     }
     this.renderBoard();
