@@ -36,6 +36,8 @@ export function findSolutionStep(
   values: readonly number[],
 ): SolutionStep | null {
   const fractions = values.map(createWhole);
+  let negativeFallback: SolutionStep | null = null;
+
   for (let leftIndex = 0; leftIndex < fractions.length; leftIndex += 1) {
     for (
       let rightIndex = leftIndex + 1;
@@ -50,17 +52,21 @@ export function findSolutionStep(
 
       for (const candidate of combine(left, right)) {
         if (solve([...remaining, candidate.value])) {
-          return {
+          const step: SolutionStep = {
             left: candidate.left.numerator,
             right: candidate.right.numerator,
             operator: candidate.operator,
           };
+          if (candidate.value.numerator >= 0) {
+            return step;
+          }
+          negativeFallback ??= step;
         }
       }
     }
   }
 
-  return null;
+  return negativeFallback;
 }
 
 export function generatePuzzle(

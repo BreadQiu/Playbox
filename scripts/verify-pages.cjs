@@ -76,9 +76,12 @@ async function main() {
 
   try {
     await page.goto(`${baseUrl}/`, { waitUntil: "networkidle" });
-    await page.getByRole("heading", { name: "打开盒子， 随便玩一局。" })
+    await page.getByRole("heading", { name: "拖动数字， 拼出刚好 24。" })
       .waitFor();
     const catalogTitle = await page.title();
+    if (catalogTitle !== "Blocky 24") {
+      throw new Error(`Unexpected catalog title: ${catalogTitle}`);
+    }
     await page.screenshot({
       path: "test-results/screenshots/playbox-catalog.png",
       fullPage: true,

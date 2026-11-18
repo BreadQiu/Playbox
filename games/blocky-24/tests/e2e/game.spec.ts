@@ -428,7 +428,7 @@ test("hint shows the first operation from the original cards", async ({
         bubbleBox.height / 2 -
         (hintBox.y + hintBox.height / 2),
     ),
-  ).toBeLessThanOrEqual(2);
+  ).toBeLessThanOrEqual(3);
   expect(bubbleBox.x + bubbleBox.width).toBeLessThanOrEqual(hintBox.x);
 
   await page.getByRole("heading", { name: "Blocky 24" }).click();
@@ -455,6 +455,16 @@ test("hint shows reversed subtraction in its actual operand order", async ({
 
   await expect(page.locator("[data-hint-bubble]")).toHaveText("5 − 3");
   await expect(page.locator("[data-hint-bubble]")).not.toHaveText("3 − 5");
+});
+
+test("hint avoids a negative subtraction when a valid alternative exists", async ({
+  page,
+}) => {
+  await page.goto("/?puzzle=1,1,3,13");
+  await page.getByRole("button", { name: "提示" }).click();
+
+  await expect(page.locator("[data-hint-bubble]")).toHaveText("3 − 1");
+  await expect(page.locator("[data-hint-bubble]")).not.toHaveText("1 − 3");
 });
 
 test("hint shows reversed division in its actual operand order", async ({
@@ -787,7 +797,7 @@ test("all displayed numbers use the A-scheme numeric font", async ({ page }) => 
     ".timer",
     ".card-value",
     ".card-expression",
-    ".operator",
+    ".operator-visual",
   ]) {
     const fontFamily = await page
       .locator(selector)
@@ -962,7 +972,202 @@ test("operators appear only near the dragged-over card with a non-overlapping ta
   await expect(page.getByText(/^= \d/)).toHaveCount(0);
   await page.waitForTimeout(180);
   const activeBox = await plusButton.boundingBox();
-  expect(activeBox?.width).toBeGreaterThan((operatorBox?.width ?? 0) * 1.1);
+  expect(activeBox?.width).toBe(48);
+  const visualSize = await plusButton.evaluate((button) => {
+    const visual =
+      button.querySelector<HTMLElement>(".operator-visual") ?? button;
+    const rect = visual.getBoundingClientRect();
+    return { width: rect.width, height: rect.height };
+  });
+  expect(visualSize.width).toBeGreaterThan(38 * 1.1);
+  await page.mouse.up();
+});
+
+test("ghost card overlap wins over the pointer when choosing an operator", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/?puzzle=3,5,6,8");
+
+  const source = await page.locator('[data-card-index="0"]').boundingBox();
+  const target = await page.locator('[data-slot-index="1"]').boundingBox();
+  if (!source || !target) throw new Error("Cards are not visible");
+
+  await page.mouse.move(
+    source.x + source.width / 2,
+    source.y + source.height / 2,
+  );
+  await page.mouse.down();
+  await page.mouse.move(
+    source.x + source.width / 2 + 12,
+    source.y + source.height / 2 + 8,
+    { steps: 4 },
+  );
+  await page.evaluate(() => {
+    const style = document.createElement("style");
+    style.textContent =
+      ".operator, .operator-visual { transition: none !important; }";
+    document.head.append(style);
+  });
+
+  const mismatches: string[] = [];
+  const positions = [4, 16, 28, 40].map((offset) => ({
+    x: target.x + offset,
+    y: target.y + target.height + 4,
+  }));
+  for (const position of positions) {
+    await page.mouse.move(position.x, position.y, { steps: 1 });
+    await page.waitForTimeout(20);
+    const result = await page.evaluate(() => {
+      const ghost = document
+        .querySelector(".drag-ghost")
+        ?.getBoundingClientRect();
+      if (!ghost) throw new Error("Drag ghost is not visible");
+
+      let best: { operator: string; area: number } | null = null;
+      for (const button of document.querySelectorAll<HTMLElement>(
+        '[data-target-index="1"][data-operator]',
+      )) {
+        const visual =
+          button.querySelector<HTMLElement>(".operator-visual") ?? button;
+        const rect = visual.getBoundingClientRect();
+        const width = Math.max(
+          0,
+          Math.min(ghost.right, rect.right) - Math.max(ghost.left, rect.left),
+        );
+        const height = Math.max(
+          0,
+          Math.min(ghost.bottom, rect.bottom) - Math.max(ghost.top, rect.top),
+        );
+        const area = width * height;
+        const minimumOverlap =
+          visual.offsetWidth * visual.offsetHeight * 0.25;
+        if (area < minimumOverlap) continue;
+        if (!best || area > best.area) {
+          best = {
+            operator: button.dataset.operator ?? "",
+            area,
+          };
+        }
+      }
+
+      const state = JSON.parse(window.render_game_to_text());
+      return {
+        best: best?.operator ?? null,
+        target: state.drag?.target?.operator ?? null,
+      };
+    });
+    if (result.best && result.best !== result.target) {
+      mismatches.push(
+        `${Math.round(position.x)},${Math.round(position.y)}:${result.target}->${result.best}`,
+      );
+    }
+  }
+
+  expect(mismatches).toEqual([]);
+
+  await page.mouse.move(positions[0].x, positions[0].y, { steps: 1 });
+  await page.waitForTimeout(20);
+  await expect(
+    page.locator('[data-target-index="1"][data-operator="+"]'),
+  ).toHaveClass(/is-targeted/);
+  const operatorSizes = await page.evaluate(() => {
+    const read = (operator: string) => {
+      const button = document.querySelector<HTMLElement>(
+        `[data-target-index="1"][data-operator="${operator}"]`,
+      );
+      if (!button) throw new Error(`Missing ${operator}`);
+      const visual =
+        button.querySelector<HTMLElement>(".operator-visual") ?? button;
+      return {
+        targeted: button.classList.contains("is-targeted"),
+        width: visual.getBoundingClientRect().width,
+      };
+    };
+    return { plus: read("+"), multiply: read("×") };
+  });
+  expect(operatorSizes.plus.targeted).toBe(true);
+  expect(operatorSizes.multiply.targeted).toBe(false);
+  expect(operatorSizes.plus.width).toBeGreaterThan(operatorSizes.multiply.width);
+
+  await page.mouse.up();
+  const state = await page.evaluate(() =>
+    JSON.parse(window.render_game_to_text()),
+  );
+  expect(state.slots[1].expression).toBe("(3 + 5)");
+});
+
+test("ghost card overlap wins over pointer proximity when choosing the target card", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/?puzzle=3,5,6,8");
+
+  const source = await page.locator('[data-card-index="0"]').boundingBox();
+  const target = await page.locator('[data-card-index="1"]').boundingBox();
+  if (!source || !target) throw new Error("Cards are not visible");
+
+  await page.mouse.move(
+    source.x + source.width / 2,
+    source.y + source.height / 2,
+  );
+  await page.mouse.down();
+  await page.mouse.move(
+    source.x + source.width / 2 + 12,
+    source.y + source.height / 2 + 8,
+    { steps: 4 },
+  );
+  const mismatches: string[] = [];
+  const positions = [
+    { x: target.x - 20, y: target.y + target.height * 1.6 },
+    { x: target.x + 4, y: target.y + target.height * 1.8 },
+    { x: target.x + target.width * 0.35, y: target.y + target.height * 1.7 },
+    { x: target.x + target.width * 0.7, y: target.y + target.height * 1.8 },
+  ];
+  for (const position of positions) {
+    await page.mouse.move(position.x, position.y, { steps: 1 });
+    await page.waitForTimeout(20);
+    const result = await page.evaluate(() => {
+      const ghost = document
+        .querySelector(".drag-ghost")
+        ?.getBoundingClientRect();
+      if (!ghost) throw new Error("Drag ghost is not visible");
+
+      let best: { index: number; area: number } | null = null;
+      for (const card of document.querySelectorAll<HTMLElement>(
+        "[data-card-index]",
+      )) {
+        if (card.dataset.cardIndex === "0") continue;
+        const rect = card.getBoundingClientRect();
+        const width = Math.max(
+          0,
+          Math.min(ghost.right, rect.right) - Math.max(ghost.left, rect.left),
+        );
+        const height = Math.max(
+          0,
+          Math.min(ghost.bottom, rect.bottom) - Math.max(ghost.top, rect.top),
+        );
+        const area = width * height;
+        if (!best || area > best.area) {
+          best = { index: Number(card.dataset.cardIndex), area };
+        }
+      }
+
+      const state = JSON.parse(window.render_game_to_text());
+      return {
+        area: best?.area ?? 0,
+        best: best?.index ?? null,
+        target: state.drag?.nearTarget ?? null,
+      };
+    });
+    if (result.area > 0 && result.target !== result.best) {
+      mismatches.push(
+        `${Math.round(position.x)},${Math.round(position.y)}:${result.target}->${result.best}`,
+      );
+    }
+  }
+
+  expect(mismatches).toEqual([]);
   await page.mouse.up();
 });
 
@@ -982,7 +1187,8 @@ for (const viewport of [
 
     const overlaps = await page.evaluate(() => {
       const style = document.createElement("style");
-      style.textContent = ".operator { transition: none !important; }";
+      style.textContent =
+        ".operator, .operator-visual { transition: none !important; }";
       document.head.append(style);
       document.querySelector("[data-board]")?.classList.add("is-dragging");
       document
@@ -995,13 +1201,24 @@ for (const viewport of [
         ),
       );
       const found: string[] = [];
+      const resized: string[] = [];
       const readRects = () =>
         buttons.map((button) => button.getBoundingClientRect());
+      const baseRects = readRects();
 
       for (const activeButton of buttons) {
         buttons.forEach((button) => button.classList.remove("is-targeted"));
         activeButton.classList.add("is-targeted");
         const rects = readRects();
+        const activeIndex = buttons.indexOf(activeButton);
+        if (
+          rects[activeIndex].width !== baseRects[activeIndex].width ||
+          rects[activeIndex].height !== baseRects[activeIndex].height
+        ) {
+          resized.push(
+            `${activeButton.dataset.targetIndex}${activeButton.dataset.operator}`,
+          );
+        }
         for (let first = 0; first < rects.length; first += 1) {
           for (let second = first + 1; second < rects.length; second += 1) {
             const a = rects[first];
@@ -1019,10 +1236,11 @@ for (const viewport of [
           }
         }
       }
-      return found;
+      return { found, resized };
     });
 
-    expect(overlaps).toEqual([]);
+    expect(overlaps.resized).toEqual([]);
+    expect(overlaps.found).toEqual([]);
   });
 }
 

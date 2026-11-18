@@ -42,6 +42,7 @@ const REGULAR_CARD_COLORS = [
 const WIN_CARD_COLOR = "#aee8cb";
 const LOSS_CARD_COLOR = "#ffb29b";
 const NEARBY_TARGET_DISTANCE = 44;
+const MIN_OPERATOR_OVERLAP_RATIO = 0.25;
 
 const operatorLabels: Record<Operator, string> = {
   "+": "加",
@@ -54,6 +55,8 @@ type DragTarget = Readonly<{
   targetIndex: number;
   operator: Operator;
 }>;
+
+type RectLike = Pick<DOMRect, "left" | "right" | "top" | "bottom">;
 
 type CardAppearance = Readonly<{
   color: (typeof REGULAR_CARD_COLORS)[number];
@@ -614,7 +617,7 @@ export class TwentyFourApp {
               aria-label="${operatorLabels[operator]}"
               ${disabled ? "disabled" : ""}
             >
-              ${displayOperator(operator)}
+              <span class="operator-visual" aria-hidden="true">${displayOperator(operator)}</span>
             </button>
           `;
         }).join("")}
@@ -933,15 +936,42 @@ export class TwentyFourApp {
   ): number | null {
     if (session.ghost) {
       const ghostRect = session.ghost.getBoundingClientRect();
-      const ghostTarget = this.findNearbyCard(
-        ghostRect.left + ghostRect.width / 2,
-        ghostRect.top + ghostRect.height / 2,
+      const ghostTarget = this.findOverlappingCard(
+        ghostRect,
         session.sourceIndex,
       );
       if (ghostTarget !== null) return ghostTarget;
     }
 
     return this.findNearbyCard(clientX, clientY, session.sourceIndex);
+  }
+
+  private findOverlappingCard(
+    ghostRect: DOMRect,
+    sourceIndex: number,
+  ): number | null {
+    let overlappingIndex: number | null = null;
+    let largestOverlap = 0;
+
+    for (const cardElement of this.root.querySelectorAll<HTMLElement>(
+      "[data-card-index]",
+    )) {
+      const targetIndex = Number(cardElement.dataset.cardIndex);
+      if (targetIndex === sourceIndex || !this.state.slots[targetIndex]) {
+        continue;
+      }
+
+      const overlap = intersectionArea(
+        ghostRect,
+        cardElement.getBoundingClientRect(),
+      );
+      if (overlap > largestOverlap) {
+        largestOverlap = overlap;
+        overlappingIndex = targetIndex;
+      }
+    }
+
+    return overlappingIndex;
   }
 
   private findNearbyCard(
@@ -997,33 +1027,42 @@ export class TwentyFourApp {
   ): HTMLButtonElement | null {
     if (!session.ghost || targetIndex === null) return null;
     const ghostRect = session.ghost.getBoundingClientRect();
-    const ghostCenter = {
-      x: ghostRect.left + ghostRect.width / 2,
-      y: ghostRect.top + ghostRect.height / 2,
-    };
-    let nearest: { button: HTMLButtonElement; distance: number } | null = null;
+    let best: { button: HTMLButtonElement; overlap: number } | null = null;
 
     for (const button of this.root.querySelectorAll<HTMLButtonElement>(
       `[data-target-index="${targetIndex}"][data-operator]`,
     )) {
       if (button.disabled) continue;
-      const operatorRect = button.getBoundingClientRect();
-      const distance = Math.hypot(
-        operatorRect.left + operatorRect.width / 2 - ghostCenter.x,
-        operatorRect.top + operatorRect.height / 2 - ghostCenter.y,
-      );
-      const ghostCenterInside =
-        ghostCenter.x >= operatorRect.left &&
-        ghostCenter.x <= operatorRect.right &&
-        ghostCenter.y >= operatorRect.top &&
-        ghostCenter.y <= operatorRect.bottom;
-      if (!ghostCenterInside) continue;
-      if (!nearest || distance < nearest.distance) {
-        nearest = { button, distance };
+      const buttonRect = button.getBoundingClientRect();
+      const visual =
+        button.querySelector<HTMLElement>(".operator-visual") ?? button;
+      const operatorRect = {
+        left:
+          buttonRect.left + (buttonRect.width - visual.offsetWidth) / 2,
+        right:
+          buttonRect.right - (buttonRect.width - visual.offsetWidth) / 2,
+        top:
+          buttonRect.top + (buttonRect.height - visual.offsetHeight) / 2,
+        bottom:
+          buttonRect.bottom - (buttonRect.height - visual.offsetHeight) / 2,
+      };
+      const minimumOverlap =
+        visual.offsetWidth * visual.offsetHeight * MIN_OPERATOR_OVERLAP_RATIO;
+      const overlap = intersectionArea(ghostRect, operatorRect);
+      if (overlap < minimumOverlap) continue;
+
+      const isCurrent =
+        session.currentTarget?.targetIndex === targetIndex &&
+        session.currentTarget.operator === button.dataset.operator;
+      const isLarger = !best || overlap > best.overlap + 0.5;
+      const isTied =
+        best !== null && Math.abs(overlap - best.overlap) <= 0.5;
+      if (isLarger || (isTied && isCurrent)) {
+        best = { button, overlap };
       }
     }
 
-    return nearest?.button ?? null;
+    return best?.button ?? null;
   }
 
   private updateNearbyTarget(
@@ -1257,6 +1296,18 @@ function distanceToRect(
     y - rect.bottom,
   );
   return Math.hypot(horizontalDistance, verticalDistance);
+}
+
+function intersectionArea(left: RectLike, right: RectLike): number {
+  const width = Math.max(
+    0,
+    Math.min(left.right, right.right) - Math.max(left.left, right.left),
+  );
+  const height = Math.max(
+    0,
+    Math.min(left.bottom, right.bottom) - Math.max(left.top, right.top),
+  );
+  return width * height;
 }
 
 function clamp(value: number, minimum: number, maximum: number): number {

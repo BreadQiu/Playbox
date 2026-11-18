@@ -46,6 +46,14 @@ describe("24-point puzzle solving", () => {
     });
   });
 
+  it("prefers a non-negative subtraction for the opening hint", () => {
+    expect(findSolutionStep([1, 1, 3, 13])).toEqual({
+      left: 3,
+      right: 1,
+      operator: "-",
+    });
+  });
+
   it("keeps the actual operands for reversed division", () => {
     expect(findSolutionStep([3, 6, 13, 9])).toEqual({
       left: 6,
