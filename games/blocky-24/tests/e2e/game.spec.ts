@@ -651,6 +651,16 @@ test("hint shows reversed division in its actual operand order", async ({
   await expect(page.locator("[data-hint-bubble]")).not.toHaveText("3 ÷ 6");
 });
 
+test("hint prefers dividing the larger number by the smaller number", async ({
+  page,
+}) => {
+  await page.goto("/?puzzle=2,1,5,10");
+  await page.getByRole("button", { name: "提示" }).click();
+
+  await expect(page.locator("[data-hint-bubble]")).toHaveText("5 ÷ 2");
+  await expect(page.locator("[data-hint-bubble]")).not.toHaveText("2 ÷ 5");
+});
+
 test("an unsolvable hint pauses and prepares the next puzzle", async ({
   page,
 }) => {

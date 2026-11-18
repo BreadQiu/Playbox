@@ -63,6 +63,22 @@ describe("24-point puzzle solving", () => {
     });
   });
 
+  it("prefers dividing the larger number by the smaller number", () => {
+    expect(findSolutionStep([2, 1, 5, 10])).toEqual({
+      left: 5,
+      right: 2,
+      operator: "÷",
+    });
+  });
+
+  it("uses the smaller number divided by the larger one when required", () => {
+    expect(findSolutionStep([1, 3, 4, 6])).toEqual({
+      left: 3,
+      right: 4,
+      operator: "÷",
+    });
+  });
+
   it("returns a complete readable solution expression", () => {
     expect(findSolutionExpression([6, 6, 6, 6])).toBe("6+6+6+6");
     expect(findSolutionExpression([1, 1, 1, 1])).toBeNull();

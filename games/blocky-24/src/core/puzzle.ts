@@ -202,21 +202,28 @@ function combine(left: Fraction, right: Fraction): OperatorCandidate[] {
     { value: multiply(left, right), left, right, operator: "×" },
   ];
 
-  if (right.numerator !== 0) {
-    results.push({
-      value: divide(left, right),
-      left,
-      right,
-      operator: "÷",
-    });
-  }
-  if (left.numerator !== 0) {
-    results.push({
-      value: divide(right, left),
-      left: right,
-      right: left,
-      operator: "÷",
-    });
+  const leftDividedByRight = (): OperatorCandidate => ({
+    value: divide(left, right),
+    left,
+    right,
+    operator: "÷",
+  });
+  const rightDividedByLeft = (): OperatorCandidate => ({
+    value: divide(right, left),
+    left: right,
+    right: left,
+    operator: "÷",
+  });
+  const leftIsGreater =
+    left.numerator * right.denominator >
+    right.numerator * left.denominator;
+
+  if (leftIsGreater) {
+    if (right.numerator !== 0) results.push(leftDividedByRight());
+    if (left.numerator !== 0) results.push(rightDividedByLeft());
+  } else {
+    if (left.numerator !== 0) results.push(rightDividedByLeft());
+    if (right.numerator !== 0) results.push(leftDividedByRight());
   }
 
   const unique = new Map<string, OperatorCandidate>();
