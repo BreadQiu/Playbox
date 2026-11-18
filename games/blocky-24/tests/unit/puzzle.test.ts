@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   findSolutionStep,
+  findSolutionExpression,
   generatePuzzle,
   hasSolution,
 } from "../../src/core/puzzle";
@@ -60,6 +61,11 @@ describe("24-point puzzle solving", () => {
       right: 3,
       operator: "÷",
     });
+  });
+
+  it("returns a complete readable solution expression", () => {
+    expect(findSolutionExpression([6, 6, 6, 6])).toBe("6+6+6+6");
+    expect(findSolutionExpression([1, 1, 1, 1])).toBeNull();
   });
 });
 

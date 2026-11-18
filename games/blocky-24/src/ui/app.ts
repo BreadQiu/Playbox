@@ -12,6 +12,7 @@ import {
 } from "../core/game";
 import { GameAudio, parseAudioStyle } from "../audio/game-audio";
 import {
+  findSolutionExpression,
   findSolutionStep,
   generatePuzzle,
   type DigitRange,
@@ -34,13 +35,17 @@ const OPERATOR_POSITIONS: readonly OperatorPosition[] = [
   "bottom-right",
 ];
 const REGULAR_CARD_COLORS = [
-  "#ffe49b",
-  "#a9d8ff",
-  "#f3c0e2",
-  "#d7c7ff",
+  "#fadb3d",
+  "#ff9e2c",
+  "#ff786b",
+  "#f45b9a",
+  "#c86dd7",
+  "#5b8def",
+  "#4fc3f7",
+  "#8e7cff",
 ] as const;
-const WIN_CARD_COLOR = "#aee8cb";
-const LOSS_CARD_COLOR = "#ffb29b";
+const WIN_CARD_COLOR = "#24d97d";
+const LOSS_CARD_COLOR = "#ff3b5c";
 const NEARBY_TARGET_DISTANCE = 44;
 const MIN_OPERATOR_OVERLAP_RATIO = 0.25;
 
@@ -69,6 +74,11 @@ type SolutionCheckState =
   | "solvable"
   | "unsolvable";
 
+type PreviousPuzzle = Readonly<{
+  values: PuzzleValues;
+  expression: string | null;
+}>;
+
 type DragSession = {
   sourceIndex: number;
   sourceCard: Card;
@@ -91,6 +101,8 @@ export class TwentyFourApp {
   private settings: GameSettings;
   private initialValues: PuzzleValues;
   private solutionStep: SolutionStep | null;
+  private solutionExpression: string | null;
+  private previousPuzzle: PreviousPuzzle | null = null;
   private solutionCheckState: SolutionCheckState = "idle";
   private hintOpen = false;
   private hintLockedByCheck = false;
@@ -118,18 +130,18 @@ export class TwentyFourApp {
       parseAudioStyle(parameters.get("sound")),
       storage,
     );
-    document.title =
-      this.audio.style === "tactile"
-        ? "Blocky 24 · 积木音色"
-        : "Blocky 24 · 喜剧音色";
     this.initialValues = this.createPuzzle();
     this.solutionStep = findSolutionStep(this.initialValues);
+    this.solutionExpression = findSolutionExpression(this.initialValues);
     this.state = newGame(this.initialValues);
     this.renderShell();
     this.bindEvents();
     this.timer.start();
     this.updateTimer();
     this.timerInterval = window.setInterval(() => this.updateTimer(), 250);
+    if (!parameters.has("puzzle")) {
+      this.openTutorial(false);
+    }
     window.addEventListener("beforeunload", () => {
       window.clearInterval(this.timerInterval);
     });
@@ -173,6 +185,9 @@ export class TwentyFourApp {
             <button class="icon-button" type="button" aria-label="静音" data-action="audio">
               ${audioIcon(false)}
             </button>
+            <button class="icon-button help-button" type="button" aria-label="新手玩法" data-action="tutorial">
+              <span aria-hidden="true">?</span>
+            </button>
             <button class="icon-button" type="button" aria-label="设置" data-action="settings">
               ${gearIcon()}
             </button>
@@ -184,6 +199,7 @@ export class TwentyFourApp {
             <button class="frame-tool" type="button" aria-label="撤销" data-action="undo" disabled>
               ${undoIcon()}
             </button>
+            <p class="previous-solution" data-previous-solution hidden aria-live="polite"></p>
             <div class="hint-tool">
               <button
                 class="frame-tool"
@@ -247,11 +263,66 @@ export class TwentyFourApp {
             <button class="apply-button" type="submit">应用并换题</button>
           </form>
         </dialog>
+
+        <dialog class="help-dialog" aria-labelledby="help-title" aria-describedby="help-summary">
+          <div class="help-panel">
+            <header class="help-heading">
+              <div>
+                <h2 id="help-title">新手提示</h2>
+              </div>
+              <button class="dialog-close help-close" type="button" aria-label="关闭新手提示" data-action="close-tutorial">×</button>
+            </header>
+
+            <div class="tutorial-demo" aria-hidden="true">
+              <div class="tutorial-stage">
+                <span class="tutorial-card tutorial-source">4</span>
+                <span class="tutorial-operator">×</span>
+                <span class="tutorial-card tutorial-target">6</span>
+                <span class="tutorial-arrow">→</span>
+                <span class="tutorial-card tutorial-result">24</span>
+              </div>
+              <p class="help-summary" id="help-summary">
+                用四张数字牌算出 <strong>24</strong>
+              </p>
+              <span class="tutorial-caption">拖到运算符上，松手合并</span>
+            </div>
+
+            <div class="tutorial-features">
+              <div class="tutorial-feature">
+                <div class="feature-stage feature-hint-demo">
+                  <span class="feature-icon">${bulbIcon()}</span>
+                  <span class="feature-tip">6 + 2</span>
+                </div>
+                <strong>灯泡</strong>
+                <span>提示第一步</span>
+              </div>
+              <div class="tutorial-feature">
+                <div class="feature-stage feature-undo-demo">
+                  <span class="feature-icon">${undoIcon()}</span>
+                  <span class="feature-step">回到上一步</span>
+                </div>
+                <strong>撤销</strong>
+                <span>恢复上一手</span>
+              </div>
+              <div class="tutorial-feature">
+                <div class="feature-stage feature-check-demo">
+                  <span class="feature-check-button">
+                    <span class="feature-check-blue-label">无解</span>
+                    <span class="feature-check-green-label">此题无解</span>
+                  </span>
+                </div>
+                <strong>无解</strong>
+                <span>认为本题无解</span>
+              </div>
+            </div>
+          </div>
+        </dialog>
       </main>
     `;
 
     this.syncSettingsForm();
     this.renderAudioControl();
+    this.renderPreviousPuzzle();
     this.renderBoard();
   }
 
@@ -275,6 +346,23 @@ export class TwentyFourApp {
         this.renderAudioControl();
       });
     this.root
+      .querySelector<HTMLButtonElement>('[data-action="tutorial"]')
+      ?.addEventListener("click", () => {
+        this.openTutorial(true);
+      });
+    this.root
+      .querySelector<HTMLButtonElement>('[data-action="close-tutorial"]')
+      ?.addEventListener("click", () => {
+        this.audio.play("ui");
+        this.closeTutorial();
+      });
+    const tutorial = this.root.querySelector<HTMLDialogElement>(".help-dialog");
+    tutorial?.addEventListener("click", (event) => {
+      if (event.target === tutorial) {
+        this.closeTutorial();
+      }
+    });
+    this.root
       .querySelector<HTMLFormElement>(".settings-form")
       ?.addEventListener("submit", (event) => {
         event.preventDefault();
@@ -284,6 +372,30 @@ export class TwentyFourApp {
       .querySelector<HTMLElement>("[data-board]")
       ?.addEventListener("pointerdown", (event) => {
         this.beginPointerDrag(event);
+      });
+    this.root
+      .querySelector<HTMLElement>("[data-board]")
+      ?.addEventListener("click", (event) => {
+        const target = event.target;
+        if (
+          target instanceof Element &&
+          target.closest('[data-action="card-next"]')
+        ) {
+          this.beginNewPuzzle();
+        }
+      });
+    this.root
+      .querySelector<HTMLElement>("[data-board]")
+      ?.addEventListener("keydown", (event) => {
+        const target = event.target;
+        if (
+          (event.key === "Enter" || event.key === " ") &&
+          target instanceof Element &&
+          target.closest('[data-action="card-next"]')
+        ) {
+          event.preventDefault();
+          this.beginNewPuzzle();
+        }
       });
     this.root
       .querySelector<HTMLButtonElement>('[data-action="undo"]')
@@ -374,6 +486,22 @@ export class TwentyFourApp {
     this.root.querySelector<HTMLDialogElement>(".settings-dialog")?.close();
   }
 
+  private openTutorial(playSound: boolean): void {
+    const dialog = this.root.querySelector<HTMLDialogElement>(".help-dialog");
+    if (!dialog || dialog.open) return;
+    if (playSound) {
+      this.audio.play("ui");
+    }
+    dialog.showModal();
+    dialog
+      .querySelector<HTMLButtonElement>('[data-action="close-tutorial"]')
+      ?.focus();
+  }
+
+  private closeTutorial(): void {
+    this.root.querySelector<HTMLDialogElement>(".help-dialog")?.close();
+  }
+
   private applySettings(): void {
     const form = this.root.querySelector<HTMLFormElement>(".settings-form");
     if (!form) return;
@@ -391,6 +519,7 @@ export class TwentyFourApp {
 
   private resetPuzzleAids(): void {
     this.solutionStep = findSolutionStep(this.initialValues);
+    this.solutionExpression = findSolutionExpression(this.initialValues);
     this.solutionCheckState = "idle";
     this.hintLockedByCheck = false;
     this.hideHint();
@@ -420,15 +549,15 @@ export class TwentyFourApp {
   }
 
   private toggleHint(): void {
+    const hint = this.root.querySelector<HTMLButtonElement>(
+      '[data-action="hint"]',
+    );
     if (this.hintOpen) {
       this.hideHint();
       return;
     }
 
     const bubble = this.root.querySelector<HTMLElement>("[data-hint-bubble]");
-    const hint = this.root.querySelector<HTMLButtonElement>(
-      '[data-action="hint"]',
-    );
     if (!bubble) return;
 
     this.hintOpen = true;
@@ -483,6 +612,7 @@ export class TwentyFourApp {
   }
 
   private beginNewPuzzle(): void {
+    this.rememberCurrentPuzzle();
     this.audio.play("new");
     this.cardAppearances.clear();
     this.hasWonThisRound = false;
@@ -492,6 +622,7 @@ export class TwentyFourApp {
     this.timer.reset();
     this.timer.start();
     this.renderBoard();
+    this.renderPreviousPuzzle();
     this.updateTimer();
   }
 
@@ -502,6 +633,7 @@ export class TwentyFourApp {
     this.cardAppearances.clear();
     this.state = resetRound(this.state, this.initialValues);
     this.solutionStep = findSolutionStep(this.initialValues);
+    this.solutionExpression = findSolutionExpression(this.initialValues);
     this.hideHint();
     this.solutionCheckState = previousSolutionState;
     this.hintLockedByCheck = previousHintLocks;
@@ -550,18 +682,21 @@ export class TwentyFourApp {
             ? WIN_CARD_COLOR
             : LOSS_CARD_COLOR
           : appearance.color;
+        const canStartNext = this.state.status === "won" && isFinalCard;
+        const cardValue = formatCardValue(card);
         return `
           <div class="card-slot slot-${slotIndex}" data-slot-index="${slotIndex}">
             <div
-              class="number-card"
+              class="number-card${canStartNext ? " is-next-card" : ""}"
               data-card-index="${slotIndex}"
-              role="img"
-              aria-label="数字 ${formatCardValue(card)}"
-              aria-description="按住并拖动到另一张数字牌旁边的运算符"
+              ${canStartNext ? 'data-action="card-next" tabindex="0"' : ""}
+              role="${canStartNext ? "button" : "img"}"
+              aria-label="${canStartNext ? "24，计算成功，进入新题" : `数字 ${cardValue}`}"
+              ${canStartNext ? "" : 'aria-description="按住并拖动到另一张数字牌旁边的运算符"'}
               style="--card-color: ${cardColor}; --card-tilt: ${appearance.tilt}deg"
             >
-              <span class="card-value ${formatCardValue(card).length > 3 ? "is-long" : ""}">${formatCardValue(card)}</span>
-              ${card.expression === formatCardValue(card) ? "" : `<span class="card-expression">${escapeHtml(card.expression)}</span>`}
+              <span class="card-value ${cardValue.length > 3 ? "is-long" : ""}">${cardValue}</span>
+              ${canStartNext ? '<span class="card-next-label" aria-hidden="true">下一题</span>' : ""}
             </div>
             ${this.renderOperators(card, slotIndex)}
           </div>
@@ -575,6 +710,34 @@ export class TwentyFourApp {
     }
 
     this.renderResult();
+  }
+
+  private rememberCurrentPuzzle(): void {
+    this.previousPuzzle = {
+      values: this.initialValues,
+      expression:
+        this.solutionExpression ??
+        findSolutionExpression(this.initialValues),
+    };
+  }
+
+  private renderPreviousPuzzle(): void {
+    const output = this.root.querySelector<HTMLElement>(
+      "[data-previous-solution]",
+    );
+    if (!output) return;
+
+    if (!this.previousPuzzle) {
+      output.hidden = true;
+      output.textContent = "";
+      return;
+    }
+
+    const values = this.previousPuzzle.values.join("、");
+    output.textContent = this.previousPuzzle.expression
+      ? `上一题：${this.previousPuzzle.expression}=24`
+      : `上一题：${values}无解`;
+    output.hidden = false;
   }
 
   private getCardAppearance(card: Card): CardAppearance {
@@ -1230,14 +1393,6 @@ export class TwentyFourApp {
       this.updateTimer();
     };
   }
-}
-
-function escapeHtml(value: string): string {
-  return value
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;");
 }
 
 function undoIcon(): string {

@@ -173,6 +173,12 @@ async function enableUnsolvableSetting(page: Page) {
   await page.getByRole("button", { name: "应用并换题" }).click();
 }
 
+async function dismissTutorial(page: Page) {
+  const closeButton = page.getByRole("button", { name: "关闭新手提示" });
+  await closeButton.waitFor({ state: "visible" });
+  await closeButton.click();
+}
+
 async function shadowColor(locator: Locator): Promise<string | null> {
   return locator.evaluate((element) => {
     const shadow = getComputedStyle(element).boxShadow;
@@ -184,7 +190,7 @@ test("comedy is the default sound for the regular game entry", async ({
   page,
 }) => {
   await page.goto("/?puzzle=6,2,8,4");
-  await expect(page).toHaveTitle("Blocky 24 · 喜剧音色");
+  await expect(page).toHaveTitle("Blocky 24");
 
   const state = await page.evaluate(() =>
     JSON.parse(window.render_game_to_text()),
@@ -198,7 +204,7 @@ test("comedy is the default sound for the regular game entry", async ({
 
 test("tactile audio preview is available from its own URL", async ({ page }) => {
   await page.goto("/?puzzle=6,2,8,4&sound=tactile");
-  await expect(page).toHaveTitle("Blocky 24 · 积木音色");
+  await expect(page).toHaveTitle("Blocky 24");
 
   let state = await page.evaluate(() =>
     JSON.parse(window.render_game_to_text()),
@@ -231,7 +237,7 @@ test("tactile audio preview is available from its own URL", async ({ page }) => 
 
 test("comedy audio preview is available from its own URL", async ({ page }) => {
   await page.goto("/?puzzle=6,2,8,4&sound=comedy");
-  await expect(page).toHaveTitle("Blocky 24 · 喜剧音色");
+  await expect(page).toHaveTitle("Blocky 24");
 
   let state = await page.evaluate(() =>
     JSON.parse(window.render_game_to_text()),
@@ -320,8 +326,110 @@ test("retry keeps a revealed solvable or unsolvable status", async ({
   expect(state.timer.running).toBe(false);
 });
 
-test("opens directly into a playable 24-point board", async ({ page }) => {
+test("opens the animated tutorial before a playable board", async ({ page }) => {
   await page.goto("/");
+
+  const tutorial = page.getByRole("dialog", { name: "新手提示" });
+  await expect(tutorial).toBeVisible();
+  await expect(tutorial.getByText("第一次来？")).toHaveCount(0);
+  await expect(tutorial.locator(".tutorial-demo")).toBeVisible();
+  await expect(tutorial.locator(".tutorial-goal")).toHaveCount(0);
+  const summary = tutorial.locator(".tutorial-demo .help-summary");
+  const caption = tutorial.locator(".tutorial-caption");
+  await expect(summary).toHaveText("用四张数字牌算出 24");
+  await expect(caption).toHaveText("拖到运算符上，松手合并");
+  const summaryBox = await summary.boundingBox();
+  const captionBox = await caption.boundingBox();
+  if (!summaryBox || !captionBox) {
+    throw new Error("Tutorial instruction is not visible");
+  }
+  expect(summaryBox.y + summaryBox.height).toBeLessThanOrEqual(captionBox.y);
+  await expect(tutorial.locator(".tutorial-source")).toHaveText("4");
+  await expect(tutorial.locator(".tutorial-operator")).toHaveText("×");
+  await expect(tutorial.locator(".tutorial-target")).toHaveText("6");
+  await expect(tutorial.locator(".tutorial-result")).toHaveText("24");
+  expect(
+    await tutorial
+      .locator(".tutorial-source")
+      .evaluate((element) => getComputedStyle(element).backgroundColor),
+  ).toBe("rgb(79, 195, 247)");
+  expect(
+    await tutorial
+      .locator(".tutorial-target")
+      .evaluate((element) => getComputedStyle(element).backgroundColor),
+  ).toBe("rgb(244, 91, 154)");
+  expect(
+    await tutorial
+      .locator(".tutorial-result")
+      .evaluate((element) => getComputedStyle(element).backgroundColor),
+  ).toBe("rgb(36, 217, 125)");
+  const features = tutorial.locator(".tutorial-feature");
+  await expect(features).toHaveCount(3);
+  const checkFeature = features.nth(2);
+  await expect(checkFeature.locator("strong")).toHaveText("无解");
+  await expect(checkFeature.locator(":scope > span")).toHaveText("认为本题无解");
+  await expect(checkFeature.locator(".feature-check-blue-label")).toHaveText(
+    "无解",
+  );
+  await expect(checkFeature.locator(".feature-check-green-label")).toHaveText(
+    "此题无解",
+  );
+  await expect(checkFeature.locator(".feature-check-result")).toHaveCount(0);
+  for (const selector of [
+    ".feature-hint-demo",
+    ".feature-undo-demo",
+    ".feature-check-demo",
+  ]) {
+    expect(
+      await tutorial
+        .locator(selector)
+        .evaluate((element) => getComputedStyle(element).animationName),
+    ).not.toBe("none");
+  }
+  const tutorialState = await page.evaluate(() =>
+    JSON.parse(window.render_game_to_text()),
+  );
+  expect(tutorialState.timer.running).toBe(true);
+
+  await page.getByRole("button", { name: "关闭新手提示" }).click();
+  await expect(tutorial).toBeHidden();
+  await expect(page.getByTestId("timer")).toHaveText(/^00:0[0-2]$/);
+  await expect
+    .poll(async () =>
+      page.evaluate(
+        () => JSON.parse(window.render_game_to_text()).timer.running,
+      ),
+    )
+    .toBe(true);
+
+  const audioButton = page.getByRole("button", { name: "静音" });
+  const helpButton = page.getByRole("button", { name: "新手玩法" });
+  const settingsButton = page.getByRole("button", { name: "设置" });
+  const audioBox = await audioButton.boundingBox();
+  const helpBox = await helpButton.boundingBox();
+  const settingsBox = await settingsButton.boundingBox();
+  if (!audioBox || !helpBox || !settingsBox) {
+    throw new Error("Topbar controls are not visible");
+  }
+  expect(helpBox.x).toBeGreaterThan(audioBox.x);
+  expect(settingsBox.x).toBeGreaterThan(helpBox.x);
+
+  await helpButton.click();
+  await expect(tutorial).toBeVisible();
+  expect(
+    await page.evaluate(
+      () => JSON.parse(window.render_game_to_text()).timer.running,
+    ),
+  ).toBe(true);
+  await page.keyboard.press("Escape");
+  await expect(tutorial).toBeHidden();
+  await expect
+    .poll(async () =>
+      page.evaluate(
+        () => JSON.parse(window.render_game_to_text()).timer.running,
+      ),
+    )
+    .toBe(true);
 
   await expect(page.getByRole("heading", { name: "Blocky 24" })).toBeVisible();
   await expect(
@@ -352,8 +460,36 @@ test("opens directly into a playable 24-point board", async ({ page }) => {
   await expect(page.getByRole("button", { name: /声音/ })).toHaveCount(0);
 });
 
+test("remembers the previous puzzle solution without persisting it", async ({
+  page,
+}) => {
+  await page.goto("/?puzzle=6,6,6,6");
+  await expect(page.locator("[data-previous-solution]")).toBeHidden();
+
+  await page.getByRole("button", { name: "换一题" }).click();
+  await expect(page.locator("[data-previous-solution]")).toBeVisible();
+  await expect(page.locator("[data-previous-solution]")).toHaveText(
+    "上一题：6+6+6+6=24",
+  );
+
+  await page.getByRole("button", { name: "重来本题" }).click();
+  await expect(page.locator("[data-previous-solution]")).toHaveText(
+    "上一题：6+6+6+6=24",
+  );
+
+  await page.reload();
+  await expect(page.locator("[data-previous-solution]")).toBeHidden();
+
+  await page.goto("/?puzzle=1,1,1,1&allowUnsolvable=1");
+  await page.getByRole("button", { name: "换一题" }).click();
+  await expect(page.locator("[data-previous-solution]")).toHaveText(
+    "上一题：1、1、1、1无解",
+  );
+});
+
 test("undo and hint controls sit in the game panel", async ({ page }) => {
   await page.goto("/");
+  await dismissTutorial(page);
 
   await expect(
     page.locator('.game-frame [data-action="undo"]'),
@@ -366,6 +502,7 @@ test("undo and hint controls sit in the game panel", async ({ page }) => {
 
 test("opens settings with range and unsolvable choices", async ({ page }) => {
   await page.goto("/");
+  await dismissTutorial(page);
   await page.getByRole("button", { name: "设置" }).click();
 
   await expect(page.getByRole("dialog", { name: "游戏设置" })).toBeVisible();
@@ -387,10 +524,11 @@ test("opens settings with range and unsolvable choices", async ({ page }) => {
 
 test("settings controls grow when hovered", async ({ page }) => {
   await page.goto("/");
+  await dismissTutorial(page);
   await page.getByRole("button", { name: "设置" }).click();
 
   for (const control of [
-    page.locator(".dialog-close"),
+    page.locator(".settings-dialog .dialog-close"),
     page.locator(".choice-card").nth(0),
     page.locator(".choice-card").nth(1),
     page.locator(".toggle-ui"),
@@ -418,6 +556,11 @@ test("hint shows the first operation from the original cards", async ({
   await expect(bubble).toBeHidden();
   await hint.click();
   await expect(bubble).toBeVisible();
+  await bubble.evaluate(async (element) => {
+    await Promise.all(
+      element.getAnimations().map((animation) => animation.finished),
+    );
+  });
   await expect(bubble).toHaveText(/^\d+ [+−×÷] \d+$/);
   const bubbleBox = await bubble.boundingBox();
   const hintBox = await hint.boundingBox();
@@ -465,6 +608,37 @@ test("hint avoids a negative subtraction when a valid alternative exists", async
 
   await expect(page.locator("[data-hint-bubble]")).toHaveText("3 − 1");
   await expect(page.locator("[data-hint-bubble]")).not.toHaveText("1 − 3");
+});
+
+test("gameplay controls do not add post-click animations", async ({ page }) => {
+  await page.goto("/?puzzle=6,2,8,4&allowUnsolvable=1");
+
+  const hint = page.getByRole("button", { name: "提示", exact: true });
+  await hint.click();
+  expect(
+    await hint.evaluate((button) => getComputedStyle(button).animationName),
+  ).toBe("none");
+  expect(
+    await page
+      .locator("[data-hint-bubble]")
+      .evaluate((bubble) => getComputedStyle(bubble).animationName),
+  ).toBe("none");
+
+  await dragWithMouse(page, 0, 1, "-");
+  const undo = page.getByRole("button", { name: "撤销" });
+  await undo.click();
+  expect(
+    await undo.evaluate((button) => getComputedStyle(button).animationName),
+  ).toBe("none");
+
+  await page.goto("/?puzzle=6,2,8,4&allowUnsolvable=1");
+  const solution = page.locator('[data-action="solution"]');
+  await expect(solution).toHaveText("无解");
+  await solution.click();
+  expect(
+    await solution.evaluate((button) => getComputedStyle(button).animationName),
+  ).toBe("none");
+  await expect(solution).toHaveText("此题有解");
 });
 
 test("hint shows reversed division in its actual operand order", async ({
@@ -641,6 +815,7 @@ for (const viewport of [
       height: viewport.height,
     });
     await page.goto("/");
+    await dismissTutorial(page);
 
     const dimensions = await page.evaluate(() => ({
       scrollWidth: document.documentElement.scrollWidth,
@@ -654,6 +829,12 @@ for (const viewport of [
 
 test("mouse drag merges in source-op-target order", async ({ page }) => {
   await page.goto("/?puzzle=6,2,8,4");
+  expect(
+    await page
+      .locator("[data-card-index]")
+      .first()
+      .evaluate((card) => getComputedStyle(card, "::after").content),
+  ).toBe("none");
   await dragWithMouse(page, 0, 1, "-");
 
   await expect(page.locator('[data-slot-index="0"] [data-card-index]')).toHaveCount(
@@ -666,7 +847,7 @@ test("mouse drag merges in source-op-target order", async ({ page }) => {
   await expect(page.locator('[data-card-index="1"] .card-value')).toHaveText("4");
   await expect(
     page.locator('[data-card-index="1"] .card-expression'),
-  ).toHaveText("(6 − 2)");
+  ).toHaveCount(0);
   await expect(page.getByRole("button", { name: "撤销" })).toBeEnabled();
 });
 
@@ -678,7 +859,7 @@ test("touch pointer drag merges a tile", async ({ page }) => {
   await expect(page.locator('[data-card-index="1"] .card-value')).toHaveText("8");
   await expect(
     page.locator('[data-card-index="1"] .card-expression'),
-  ).toHaveText("(6 + 2)");
+  ).toHaveCount(0);
 });
 
 test("a second pointer cannot replace an active drag", async ({ page }) => {
@@ -783,6 +964,7 @@ test("the game still opens when localStorage access is blocked", async ({
     });
   });
   await page.goto("/");
+  await dismissTutorial(page);
 
   await expect(page.getByRole("heading", { name: "Blocky 24" })).toBeVisible();
   await expect(page.locator("[data-card-index]")).toHaveCount(4);
@@ -796,7 +978,6 @@ test("all displayed numbers use the A-scheme numeric font", async ({ page }) => 
     ".brand",
     ".timer",
     ".card-value",
-    ".card-expression",
     ".operator-visual",
   ]) {
     const fontFamily = await page
@@ -811,10 +992,14 @@ test("cards use unique regular colors and keep a stable appearance", async ({
   page,
 }) => {
   const allowedColors = [
-    "#ffe49b",
-    "#a9d8ff",
-    "#f3c0e2",
-    "#d7c7ff",
+    "#fadb3d",
+    "#ff9e2c",
+    "#ff786b",
+    "#f45b9a",
+    "#c86dd7",
+    "#5b8def",
+    "#4fc3f7",
+    "#8e7cff",
   ];
   const readAppearances = () =>
     page.locator("[data-card-index]").evaluateAll((cards) =>
@@ -865,6 +1050,13 @@ test("cards use unique regular colors and keep a stable appearance", async ({
     .filter(([cardIndex]) => cardIndex !== "1")
     .map(([, appearance]) => (appearance as { color: string }).color);
   expect(otherColors).not.toContain(mergedAppearance.color);
+  expect(
+    new Set(
+      Object.values(afterMerge).map(
+        (appearance) => (appearance as { color: string }).color,
+      ),
+    ).size,
+  ).toBe(Object.keys(afterMerge).length);
 
   await page.getByRole("button", { name: "撤销" }).click();
   expect(await readAppearances()).toEqual(initial);
@@ -1339,6 +1531,7 @@ test("undo, retry, and new puzzle manage game and timer state", async ({
 
 test("settings apply, persist, and start a fresh puzzle", async ({ page }) => {
   await page.goto("/");
+  await dismissTutorial(page);
   await page.getByRole("button", { name: "设置" }).click();
   await page.getByRole("radio", { name: "1-13" }).check({ force: true });
   await page
@@ -1357,6 +1550,7 @@ test("settings apply, persist, and start a fresh puzzle", async ({ page }) => {
 
 test("settings choices show keyboard focus", async ({ page }) => {
   await page.goto("/");
+  await dismissTutorial(page);
   await page.getByRole("button", { name: "设置" }).click();
   await page.getByRole("radio", { name: "1-13" }).focus();
 
@@ -1369,6 +1563,7 @@ test("settings choices show keyboard focus", async ({ page }) => {
 
 test("number tiles are not misleading keyboard buttons", async ({ page }) => {
   await page.goto("/");
+  await dismissTutorial(page);
 
   await expect(page.getByRole("button", { name: /^数字 / })).toHaveCount(0);
   await expect(page.getByRole("img", { name: /^数字 / })).toHaveCount(4);
@@ -1427,13 +1622,17 @@ test("three merges show the victory state and freeze the timer", async ({
   await expect(page.locator('[data-card-index="3"] .card-value')).toHaveText(
     "24",
   );
+  await expect(
+    page.locator('[data-action="card-next"] .card-next-label'),
+  ).toHaveText("下一题");
+  await expect(page.locator(".card-expression")).toHaveCount(0);
   expect(
     await page
       .locator('[data-card-index="3"]')
       .evaluate((card) =>
         getComputedStyle(card).getPropertyValue("--card-color").trim(),
       ),
-  ).toBe("#aee8cb");
+  ).toBe("#24d97d");
   const solution = page.locator('[data-action="solution"]');
   await expect(solution).toHaveText("此题有解");
   await expect(solution).toBeDisabled();
@@ -1499,6 +1698,29 @@ test("three merges show the victory state and freeze the timer", async ({
   await expect(solution).toBeEnabled();
 });
 
+test("the winning card starts the next puzzle with the next sound", async ({
+  page,
+}) => {
+  await page.goto("/?puzzle=6,6,6,6");
+  await dragWithMouse(page, 0, 1, "×");
+  await dragWithMouse(page, 2, 3, "+");
+  await dragWithMouse(page, 1, 3, "-");
+
+  const winningCard = page.locator('[data-action="card-next"]');
+  await expect(winningCard).toBeVisible();
+  await winningCard.click();
+
+  await expect(page.locator('[data-action="card-next"]')).toHaveCount(0);
+  await expect(page.locator("[data-previous-solution]")).toHaveText(
+    "上一题：6+6+6+6=24",
+  );
+  const state = await page.evaluate(() =>
+    JSON.parse(window.render_game_to_text()),
+  );
+  expect(state.audio.lastCue).toBe("new");
+  expect(state.status).toBe("playing");
+});
+
 test("a loss keeps the timer running until next", async ({ page }) => {
   await page.goto("/?puzzle=1,1,1,1");
   await dragWithMouse(page, 0, 1, "+");
@@ -1522,7 +1744,7 @@ test("a loss keeps the timer running until next", async ({ page }) => {
       .evaluate((card) =>
         getComputedStyle(card).getPropertyValue("--card-color").trim(),
       ),
-  ).toBe("#ffb29b");
+  ).toBe("#ff3b5c");
   const lossElapsed = lostState.timer.elapsedMs;
   await page.evaluate(() => {
     (

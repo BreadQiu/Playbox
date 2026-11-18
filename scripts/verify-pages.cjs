@@ -96,6 +96,7 @@ async function main() {
       path: "test-results/screenshots/blocky-24-pages.png",
       fullPage: true,
     });
+    await page.getByRole("button", { name: "关闭新手提示" }).click();
 
     const sourceBox = await page
       .locator('[data-card-index="0"]')
