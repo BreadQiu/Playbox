@@ -37,16 +37,10 @@ async function dragWithMouse(
   );
   const operatorBox = await operatorButton.boundingBox();
   if (!operatorBox) throw new Error("Operator target is not visible");
-  const ghostBox = await page.locator(".drag-ghost").boundingBox();
-  if (!ghostBox) throw new Error("Drag ghost is not visible");
-  const pointerToGhostCenterY =
-    targetBox.y +
-    targetBox.height / 2 -
-    (ghostBox.y + ghostBox.height / 2);
 
   await page.mouse.move(
     operatorBox.x + operatorBox.width / 2,
-    operatorBox.y + operatorBox.height / 2 + pointerToGhostCenterY,
+    operatorBox.y + operatorBox.height / 2,
     { steps: 8 },
   );
   await expect(
@@ -124,12 +118,6 @@ async function dragWithTouch(
 
   const operatorBox = await operatorButton.boundingBox();
   if (!operatorBox) throw new Error("Operator target is not visible");
-  const ghostBox = await page.locator(".drag-ghost").boundingBox();
-  if (!ghostBox) throw new Error("Drag ghost is not visible");
-  const pointerToGhostCenterY =
-    targetBox.y +
-    targetBox.height / 2 -
-    (ghostBox.y + ghostBox.height / 2);
 
   await page.evaluate(
     ({ x, y }) => {
@@ -147,7 +135,7 @@ async function dragWithTouch(
     },
     {
       x: operatorBox.x + operatorBox.width / 2,
-      y: operatorBox.y + operatorBox.height / 2 + pointerToGhostCenterY,
+      y: operatorBox.y + operatorBox.height / 2,
     },
   );
   await expect(
@@ -174,7 +162,7 @@ async function enableUnsolvableSetting(page: Page) {
 }
 
 async function dismissTutorial(page: Page) {
-  const closeButton = page.getByRole("button", { name: "关闭新手提示" });
+  const closeButton = page.getByRole("button", { name: "关闭帮助" });
   await closeButton.waitFor({ state: "visible" });
   await closeButton.click();
 }
@@ -329,7 +317,7 @@ test("retry keeps a revealed solvable or unsolvable status", async ({
 test("opens the animated tutorial before a playable board", async ({ page }) => {
   await page.goto("/");
 
-  const tutorial = page.getByRole("dialog", { name: "新手提示" });
+  const tutorial = page.getByRole("dialog", { name: "帮助" });
   await expect(tutorial).toBeVisible();
   await expect(tutorial.getByText("第一次来？")).toHaveCount(0);
   await expect(tutorial.locator(".tutorial-demo")).toBeVisible();
@@ -366,6 +354,7 @@ test("opens the animated tutorial before a playable board", async ({ page }) => 
   const features = tutorial.locator(".tutorial-feature");
   await expect(features).toHaveCount(3);
   const checkFeature = features.nth(2);
+  await expect(features.nth(0).locator("strong")).toHaveText("提示");
   await expect(checkFeature.locator("strong")).toHaveText("无解");
   await expect(checkFeature.locator(":scope > span")).toHaveText("认为本题无解");
   await expect(checkFeature.locator(".feature-check-blue-label")).toHaveText(
@@ -391,7 +380,7 @@ test("opens the animated tutorial before a playable board", async ({ page }) => 
   );
   expect(tutorialState.timer.running).toBe(true);
 
-  await page.getByRole("button", { name: "关闭新手提示" }).click();
+  await page.getByRole("button", { name: "关闭帮助" }).click();
   await expect(tutorial).toBeHidden();
   await expect(page.getByTestId("timer")).toHaveText(/^00:0[0-2]$/);
   await expect
@@ -403,7 +392,7 @@ test("opens the animated tutorial before a playable board", async ({ page }) => 
     .toBe(true);
 
   const audioButton = page.getByRole("button", { name: "静音" });
-  const helpButton = page.getByRole("button", { name: "新手玩法" });
+  const helpButton = page.getByRole("button", { name: "帮助" });
   const settingsButton = page.getByRole("button", { name: "设置" });
   const audioBox = await audioButton.boundingBox();
   const helpBox = await helpButton.boundingBox();
@@ -500,12 +489,85 @@ test("undo and hint controls sit in the game panel", async ({ page }) => {
   ).toHaveCount(0);
 });
 
+test("target operators sit above their card but below other cards", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await dismissTutorial(page);
+  await page.getByRole("button", { name: "换一题" }).click();
+
+  const source = page.locator('[data-card-index="0"]');
+  const sourceBox = await source.boundingBox();
+  if (!sourceBox) throw new Error("Source card is not visible");
+  await page.mouse.move(
+    sourceBox.x + sourceBox.width / 2,
+    sourceBox.y + sourceBox.height / 2,
+  );
+  await page.mouse.down();
+  await page.mouse.move(
+    sourceBox.x + sourceBox.width / 2 + 12,
+    sourceBox.y + sourceBox.height / 2 + 8,
+    { steps: 4 },
+  );
+  await expect(page.locator("[data-board]")).toHaveClass(/is-dragging/);
+
+  const target = page.locator('[data-slot-index="1"]');
+  const targetBox = await target.boundingBox();
+  if (!targetBox) throw new Error("Target card is not visible");
+  await page.mouse.move(
+    targetBox.x + targetBox.width / 2,
+    targetBox.y + targetBox.height / 2,
+    { steps: 6 },
+  );
+  await expect(target).toHaveClass(/is-near/);
+
+  const layers = await page.evaluate(() => {
+    const layer = (selector: string) => {
+      const element = document.querySelector<HTMLElement>(selector);
+      if (!element) throw new Error(`Missing ${selector}`);
+      return Number.parseInt(getComputedStyle(element).zIndex, 10);
+    };
+    const targetSlot = document.querySelector<HTMLElement>(
+      '[data-slot-index="1"]',
+    );
+    if (!targetSlot) throw new Error("Missing target slot");
+    return {
+      ownCard: Number.parseInt(
+        getComputedStyle(targetSlot.querySelector(".number-card") as Element)
+          .zIndex,
+        10,
+      ),
+      ownOperator: Number.parseInt(
+        getComputedStyle(targetSlot.querySelector(".operator-ring") as Element)
+          .zIndex,
+        10,
+      ),
+      otherCards: Array.from(
+        document.querySelectorAll<HTMLElement>(
+          '.number-card[data-card-index]:not([data-card-index="1"])',
+        ),
+      ).map((card) => Number.parseInt(getComputedStyle(card).zIndex, 10)),
+      tools: layer(".frame-tools"),
+      ghost: layer(".drag-ghost"),
+    };
+  });
+  expect(layers.ownOperator).toBeGreaterThan(layers.ownCard);
+  for (const otherCard of layers.otherCards) {
+    expect(otherCard).toBeGreaterThan(layers.ownOperator);
+  }
+  expect(layers.ownCard).toBeGreaterThan(layers.tools);
+  for (const otherCard of [...layers.otherCards, layers.ownOperator]) {
+    expect(layers.ghost).toBeGreaterThan(otherCard);
+  }
+  await page.mouse.up();
+});
+
 test("opens settings with range and unsolvable choices", async ({ page }) => {
   await page.goto("/");
   await dismissTutorial(page);
   await page.getByRole("button", { name: "设置" }).click();
 
-  await expect(page.getByRole("dialog", { name: "游戏设置" })).toBeVisible();
+  await expect(page.getByRole("dialog", { name: "设置" })).toBeVisible();
   await expect(page.getByText("出题方式")).toHaveCount(0);
   await expect(page.getByLabel("1-9")).toBeChecked();
   await expect(page.getByText("简单")).toBeVisible();
@@ -1185,7 +1247,7 @@ test("operators appear only near the dragged-over card with a non-overlapping ta
   await page.mouse.up();
 });
 
-test("ghost card overlap wins over the pointer when choosing an operator", async ({
+test("operator selection follows the pointer instead of ghost overlap", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 390, height: 844 });
@@ -1205,101 +1267,84 @@ test("ghost card overlap wins over the pointer when choosing an operator", async
     source.y + source.height / 2 + 8,
     { steps: 4 },
   );
-  await page.evaluate(() => {
-    const style = document.createElement("style");
-    style.textContent =
-      ".operator, .operator-visual { transition: none !important; }";
-    document.head.append(style);
-  });
+  await page.mouse.move(
+    target.x + target.width / 2,
+    target.y + target.height / 2,
+    { steps: 6 },
+  );
 
-  const mismatches: string[] = [];
-  const positions = [4, 16, 28, 40].map((offset) => ({
-    x: target.x + offset,
-    y: target.y + target.height + 4,
-  }));
-  for (const position of positions) {
-    await page.mouse.move(position.x, position.y, { steps: 1 });
-    await page.waitForTimeout(20);
-    const result = await page.evaluate(() => {
-      const ghost = document
-        .querySelector(".drag-ghost")
-        ?.getBoundingClientRect();
-      if (!ghost) throw new Error("Drag ghost is not visible");
-
-      let best: { operator: string; area: number } | null = null;
-      for (const button of document.querySelectorAll<HTMLElement>(
+  const ghostOnlyPoint = {
+    x: target.x + 20,
+    y: target.y + target.height / 2,
+  };
+  const overlap = await page.evaluate((point) => {
+    const ghost = document.querySelector(".drag-ghost")?.getBoundingClientRect();
+    const plus = document
+      .querySelector<HTMLElement>(
+        '[data-target-index="1"][data-operator="+"]',
+      )
+      ?.getBoundingClientRect();
+    if (!ghost || !plus) throw new Error("Drag targets are not visible");
+    const operators = Array.from(
+      document.querySelectorAll<HTMLElement>(
         '[data-target-index="1"][data-operator]',
-      )) {
-        const visual =
-          button.querySelector<HTMLElement>(".operator-visual") ?? button;
-        const rect = visual.getBoundingClientRect();
-        const width = Math.max(
-          0,
-          Math.min(ghost.right, rect.right) - Math.max(ghost.left, rect.left),
-        );
-        const height = Math.max(
-          0,
-          Math.min(ghost.bottom, rect.bottom) - Math.max(ghost.top, rect.top),
-        );
-        const area = width * height;
-        const minimumOverlap =
-          visual.offsetWidth * visual.offsetHeight * 0.25;
-        if (area < minimumOverlap) continue;
-        if (!best || area > best.area) {
-          best = {
-            operator: button.dataset.operator ?? "",
-            area,
-          };
-        }
-      }
-
-      const state = JSON.parse(window.render_game_to_text());
-      return {
-        best: best?.operator ?? null,
-        target: state.drag?.target?.operator ?? null,
-      };
-    });
-    if (result.best && result.best !== result.target) {
-      mismatches.push(
-        `${Math.round(position.x)},${Math.round(position.y)}:${result.target}->${result.best}`,
-      );
-    }
-  }
-
-  expect(mismatches).toEqual([]);
-
-  await page.mouse.move(positions[0].x, positions[0].y, { steps: 1 });
-  await page.waitForTimeout(20);
-  await expect(
-    page.locator('[data-target-index="1"][data-operator="+"]'),
-  ).toHaveClass(/is-targeted/);
-  const operatorSizes = await page.evaluate(() => {
-    const read = (operator: string) => {
-      const button = document.querySelector<HTMLElement>(
-        `[data-target-index="1"][data-operator="${operator}"]`,
-      );
-      if (!button) throw new Error(`Missing ${operator}`);
-      const visual =
-        button.querySelector<HTMLElement>(".operator-visual") ?? button;
-      return {
-        targeted: button.classList.contains("is-targeted"),
-        width: visual.getBoundingClientRect().width,
-      };
+      ),
+    ).map((button) => button.getBoundingClientRect());
+    const width = Math.max(
+      0,
+      Math.min(ghost.right, plus.right) - Math.max(ghost.left, plus.left),
+    );
+    const height = Math.max(
+      0,
+      Math.min(ghost.bottom, plus.bottom) - Math.max(ghost.top, plus.top),
+    );
+    return {
+      ghostOverlapsPlus: width * height > plus.width * plus.height * 0.25,
+      pointerInsideOperator: operators.some(
+        (rect) =>
+          point.x >= rect.left &&
+          point.x <= rect.right &&
+          point.y >= rect.top &&
+          point.y <= rect.bottom,
+      ),
     };
-    return { plus: read("+"), multiply: read("×") };
-  });
-  expect(operatorSizes.plus.targeted).toBe(true);
-  expect(operatorSizes.multiply.targeted).toBe(false);
-  expect(operatorSizes.plus.width).toBeGreaterThan(operatorSizes.multiply.width);
+  }, ghostOnlyPoint);
+  expect(overlap.ghostOverlapsPlus).toBe(true);
+  expect(overlap.pointerInsideOperator).toBe(false);
+
+  await page.mouse.move(ghostOnlyPoint.x, ghostOnlyPoint.y, { steps: 2 });
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () => JSON.parse(window.render_game_to_text()).drag?.target,
+      ),
+    )
+    .toBeNull();
+
+  const multiply = page.locator('[data-target-index="1"][data-operator="×"]');
+  const multiplyBox = await multiply.boundingBox();
+  if (!multiplyBox) throw new Error("Multiply operator is not visible");
+  await page.mouse.move(
+    multiplyBox.x + multiplyBox.width / 2,
+    multiplyBox.y + multiplyBox.height / 2,
+    { steps: 2 },
+  );
+  await expect(multiply).toHaveClass(/is-targeted/);
+  expect(
+    await page.evaluate(
+      () => JSON.parse(window.render_game_to_text()).drag?.target?.operator,
+    ),
+  ).toBe("×");
 
   await page.mouse.up();
-  const state = await page.evaluate(() =>
-    JSON.parse(window.render_game_to_text()),
-  );
-  expect(state.slots[1].expression).toBe("(3 + 5)");
+  expect(
+    await page.evaluate(
+      () => JSON.parse(window.render_game_to_text()).slots[1].expression,
+    ),
+  ).toBe("(3 × 5)");
 });
 
-test("ghost card overlap wins over pointer proximity when choosing the target card", async ({
+test("ghost card overlap wins outside operator hitboxes when choosing the target card", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 390, height: 844 });
@@ -1326,10 +1371,11 @@ test("ghost card overlap wins over pointer proximity when choosing the target ca
     { x: target.x + target.width * 0.35, y: target.y + target.height * 1.7 },
     { x: target.x + target.width * 0.7, y: target.y + target.height * 1.8 },
   ];
+  let checked = 0;
   for (const position of positions) {
     await page.mouse.move(position.x, position.y, { steps: 1 });
     await page.waitForTimeout(20);
-    const result = await page.evaluate(() => {
+    const result = await page.evaluate((point) => {
       const ghost = document
         .querySelector(".drag-ghost")
         ?.getBoundingClientRect();
@@ -1360,8 +1406,23 @@ test("ghost card overlap wins over pointer proximity when choosing the target ca
         area: best?.area ?? 0,
         best: best?.index ?? null,
         target: state.drag?.nearTarget ?? null,
+        pointerInsideOperator: Array.from(
+          document.querySelectorAll<HTMLElement>(
+            "[data-target-index][data-operator]",
+          ),
+        ).some((button) => {
+          const rect = button.getBoundingClientRect();
+          return (
+            point.x >= rect.left &&
+            point.x <= rect.right &&
+            point.y >= rect.top &&
+            point.y <= rect.bottom
+          );
+        }),
       };
-    });
+    }, position);
+    if (result.pointerInsideOperator) continue;
+    if (result.area > 0) checked += 1;
     if (result.area > 0 && result.target !== result.best) {
       mismatches.push(
         `${Math.round(position.x)},${Math.round(position.y)}:${result.target}->${result.best}`,
@@ -1369,6 +1430,7 @@ test("ghost card overlap wins over pointer proximity when choosing the target ca
     }
   }
 
+  expect(checked).toBeGreaterThan(0);
   expect(mismatches).toEqual([]);
   await page.mouse.up();
 });
@@ -1446,9 +1508,7 @@ for (const viewport of [
   });
 }
 
-test("a floating card can target an operator while the pointer is outside it", async ({
-  page,
-}) => {
+test("a pointer outside the operator hitbox does not select it", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/?puzzle=6,2,8,4");
   const source = page.locator('[data-card-index="0"]');
@@ -1478,10 +1538,24 @@ test("a floating card can target an operator while the pointer is outside it", a
   if (!plusBox) throw new Error("Operator is not visible");
   await page.mouse.move(
     plusBox.x + plusBox.width / 2,
-    plusBox.y + plusBox.height / 2 + 52,
+    targetBox.y + targetBox.height / 2,
     { steps: 6 },
   );
 
+  await expect(plusButton).not.toHaveClass(/is-targeted/);
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () => JSON.parse(window.render_game_to_text()).drag?.target,
+      ),
+    )
+    .toBeNull();
+
+  await page.mouse.move(
+    plusBox.x + plusBox.width / 2,
+    plusBox.y + plusBox.height / 2,
+    { steps: 2 },
+  );
   await expect(plusButton).toHaveClass(/is-targeted/);
   await page.mouse.up();
 });
@@ -1555,7 +1629,7 @@ test("settings apply, persist, and start a fresh puzzle", async ({ page }) => {
     ),
   );
   expect(settings).toEqual({ range: "1-13", allowUnsolvable: true });
-  await expect(page.getByRole("dialog", { name: "游戏设置" })).toBeHidden();
+  await expect(page.getByRole("dialog", { name: "设置" })).toBeHidden();
 });
 
 test("settings choices show keyboard focus", async ({ page }) => {

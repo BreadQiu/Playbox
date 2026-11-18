@@ -47,7 +47,6 @@ const REGULAR_CARD_COLORS = [
 const WIN_CARD_COLOR = "#24d97d";
 const LOSS_CARD_COLOR = "#ff3b5c";
 const NEARBY_TARGET_DISTANCE = 44;
-const MIN_OPERATOR_OVERLAP_RATIO = 0.25;
 
 const operatorLabels: Record<Operator, string> = {
   "+": "加",
@@ -185,7 +184,7 @@ export class TwentyFourApp {
             <button class="icon-button" type="button" aria-label="静音" data-action="audio">
               ${audioIcon(false)}
             </button>
-            <button class="icon-button help-button" type="button" aria-label="新手玩法" data-action="tutorial">
+            <button class="icon-button help-button" type="button" aria-label="帮助" data-action="tutorial">
               <span aria-hidden="true">?</span>
             </button>
             <button class="icon-button" type="button" aria-label="设置" data-action="settings">
@@ -233,7 +232,7 @@ export class TwentyFourApp {
         <dialog class="settings-dialog" aria-labelledby="settings-title">
           <form method="dialog" class="settings-form">
             <header class="settings-heading">
-              <h2 id="settings-title">游戏设置</h2>
+              <h2 id="settings-title">设置</h2>
               <button class="dialog-close" type="button" aria-label="关闭设置" data-action="close-settings">×</button>
             </header>
 
@@ -268,9 +267,9 @@ export class TwentyFourApp {
           <div class="help-panel">
             <header class="help-heading">
               <div>
-                <h2 id="help-title">新手提示</h2>
+                <h2 id="help-title">帮助</h2>
               </div>
-              <button class="dialog-close help-close" type="button" aria-label="关闭新手提示" data-action="close-tutorial">×</button>
+              <button class="dialog-close help-close" type="button" aria-label="关闭帮助" data-action="close-tutorial">×</button>
             </header>
 
             <div class="tutorial-demo" aria-hidden="true">
@@ -293,7 +292,7 @@ export class TwentyFourApp {
                   <span class="feature-icon">${bulbIcon()}</span>
                   <span class="feature-tip">6 + 2</span>
                 </div>
-                <strong>灯泡</strong>
+                <strong>提示</strong>
                 <span>提示第一步</span>
               </div>
               <div class="tutorial-feature">
@@ -1071,15 +1070,24 @@ export class TwentyFourApp {
     const session = this.dragSession;
     if (!session) return;
 
-    const nearTargetIndex = this.findNearbyTarget(
+    const pointerTargetIndex = this.findNearbyCard(
       clientX,
       clientY,
-      session,
+      session.sourceIndex,
     );
+    const pointerOperator = this.findOperatorAtPoint(
+      clientX,
+      clientY,
+      pointerTargetIndex,
+    );
+    const nearTargetIndex =
+      pointerOperator && pointerTargetIndex !== null
+        ? pointerTargetIndex
+        : this.findNearbyTarget(clientX, clientY, session);
     this.updateNearbyTarget(session, nearTargetIndex);
 
     const operatorButton =
-      this.findOperatorFromGhost(session, nearTargetIndex) ??
+      pointerOperator ??
       this.findOperatorAtPoint(clientX, clientY, nearTargetIndex);
     const nextTarget =
       operatorButton && nearTargetIndex !== null
@@ -1170,62 +1178,23 @@ export class TwentyFourApp {
     targetIndex: number | null,
   ): HTMLButtonElement | null {
     if (targetIndex === null) return null;
-    const element = document.elementFromPoint(clientX, clientY);
-    const button = element?.closest<HTMLButtonElement>(
-      "[data-target-index][data-operator]",
-    );
-    if (
-      !button ||
-      button.disabled ||
-      Number(button.dataset.targetIndex) !== targetIndex
-    ) {
-      return null;
-    }
-    return button;
-  }
-
-  private findOperatorFromGhost(
-    session: DragSession,
-    targetIndex: number | null,
-  ): HTMLButtonElement | null {
-    if (!session.ghost || targetIndex === null) return null;
-    const ghostRect = session.ghost.getBoundingClientRect();
-    let best: { button: HTMLButtonElement; overlap: number } | null = null;
 
     for (const button of this.root.querySelectorAll<HTMLButtonElement>(
       `[data-target-index="${targetIndex}"][data-operator]`,
     )) {
       if (button.disabled) continue;
-      const buttonRect = button.getBoundingClientRect();
-      const visual =
-        button.querySelector<HTMLElement>(".operator-visual") ?? button;
-      const operatorRect = {
-        left:
-          buttonRect.left + (buttonRect.width - visual.offsetWidth) / 2,
-        right:
-          buttonRect.right - (buttonRect.width - visual.offsetWidth) / 2,
-        top:
-          buttonRect.top + (buttonRect.height - visual.offsetHeight) / 2,
-        bottom:
-          buttonRect.bottom - (buttonRect.height - visual.offsetHeight) / 2,
-      };
-      const minimumOverlap =
-        visual.offsetWidth * visual.offsetHeight * MIN_OPERATOR_OVERLAP_RATIO;
-      const overlap = intersectionArea(ghostRect, operatorRect);
-      if (overlap < minimumOverlap) continue;
-
-      const isCurrent =
-        session.currentTarget?.targetIndex === targetIndex &&
-        session.currentTarget.operator === button.dataset.operator;
-      const isLarger = !best || overlap > best.overlap + 0.5;
-      const isTied =
-        best !== null && Math.abs(overlap - best.overlap) <= 0.5;
-      if (isLarger || (isTied && isCurrent)) {
-        best = { button, overlap };
+      const rect = button.getBoundingClientRect();
+      if (
+        clientX >= rect.left &&
+        clientX <= rect.right &&
+        clientY >= rect.top &&
+        clientY <= rect.bottom
+      ) {
+        return button;
       }
     }
 
-    return best?.button ?? null;
+    return null;
   }
 
   private updateNearbyTarget(
